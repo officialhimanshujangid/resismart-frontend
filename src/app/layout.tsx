@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "../context/AuthContext";
+import { MuiThemeProvider } from "../context/MuiThemeProvider";
+import { ToastConfirmProvider } from "../context/ToastConfirmContext";
+import { AppRouterCacheProvider } from "@mui/material-nextjs/v16-appRouter";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -9,7 +12,7 @@ const geistSans = Geist({
 });
 
 const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+  variable: "--font-mono-mono", // just matches variable name or leave standard
   subsets: ["latin"],
 });
 
@@ -29,9 +32,15 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+        <AppRouterCacheProvider>
+          <AuthProvider>
+            <MuiThemeProvider>
+              <ToastConfirmProvider>
+                {children}
+              </ToastConfirmProvider>
+            </MuiThemeProvider>
+          </AuthProvider>
+        </AppRouterCacheProvider>
       </body>
     </html>
   );

@@ -102,3 +102,24 @@ body {
   backdrop-filter: blur(12px);
   border: 1px solid rgba(0, 0, 0, 0.06);
 }
+
+/* Global scrollbar rules: no vertical scrollbar width but show horizontal scrollbar */
+::-webkit-scrollbar {
+  height: 6px; /* Horizontal scrollbar height */
+  width: 0px;  /* Vertical scrollbar width: 0 */
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1; /* slate-300 */
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: auto;
+  scrollbar-width: thin; /* Firefox thin scrollbar */
+  scrollbar-color: #cbd5e1 transparent;
+}

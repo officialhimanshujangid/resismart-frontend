@@ -171,54 +171,58 @@ export default function LoginPage() {
               )}
 
               {/* Email Input */}
-              <div className="space-y-2 relative">
-                <Label htmlFor="email" className="text-sm font-bold text-slate-800">
+              <div className="space-y-1.5 relative">
+                <Label htmlFor="email" className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">
                   E-mail Address
                 </Label>
-                <div className="relative">
+                <div className="relative group">
                   <Input
                     id="email"
                     type="email"
-                    placeholder="Enter your email"
+                    placeholder="name@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="border-t-0 border-l-0 border-r-0 border-b border-slate-200 rounded-none bg-transparent px-0 pb-2 focus:border-[#0a5bd7] focus:ring-0 focus-visible:ring-0 focus:bg-transparent shadow-none text-slate-800 placeholder:text-slate-400 text-sm w-full"
+                    className="border border-slate-200 bg-slate-50 rounded-xl px-4 py-6 focus:border-[#0a5bd7] focus:ring-2 focus:ring-[#0a5bd7]/20 transition-all text-slate-800 placeholder:text-slate-400 text-sm w-full font-medium"
                     disabled={isSubmitting}
                   />
-                  {/* Underline status icon */}
+                  {/* Validation Icon */}
                   {isEmailValid ? (
-                    <Check className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500 animate-in scale-in duration-200" />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center animate-in scale-in duration-200">
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    </div>
                   ) : email.length > 0 ? (
-                    <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[10px] text-amber-500 font-semibold">typing...</span>
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold uppercase tracking-wider">typing</span>
                   ) : null}
                 </div>
               </div>
 
               {/* Password Input */}
-              <div className="space-y-2 relative">
-                <Label htmlFor="password" className="text-sm font-bold text-slate-800">
+              <div className="space-y-1.5 relative">
+                <Label htmlFor="password" className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">
                   Password
                 </Label>
-                <div className="relative">
+                <div className="relative group">
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="Enter your password"
+                    placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="border-t-0 border-l-0 border-r-0 border-b border-slate-200 rounded-none bg-transparent px-0 pr-8 pb-2 focus:border-[#0a5bd7] focus:ring-0 focus-visible:ring-0 focus:bg-transparent shadow-none text-slate-800 placeholder:text-slate-400 text-sm w-full"
+                    className="border border-slate-200 bg-slate-50 rounded-xl px-4 py-6 pr-12 focus:border-[#0a5bd7] focus:ring-2 focus:ring-[#0a5bd7]/20 transition-all text-slate-800 placeholder:text-slate-400 text-sm w-full font-medium"
                     disabled={isSubmitting}
                   />
                   
                   {/* Status checklist and show/hide */}
-                  <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center space-x-2">
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center space-x-1.5">
                     {password.length >= 6 && (
-                      <Check className="w-4 h-4 text-emerald-500 animate-in scale-in duration-200" />
+                      <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center animate-in scale-in duration-200">
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      </div>
                     )}
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="p-1 text-slate-400 hover:text-slate-700 transition-colors"
+                      className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors"
                       tabIndex={-1}
                     >
                       {showPassword ? (
@@ -243,27 +247,20 @@ export default function LoginPage() {
                     Keep me signed in
                   </Label>
                 </div>
-                <a href="#" className="text-xs text-[#0a5bd7] font-semibold hover:underline">
+                <Link href="/forgot-password" className="text-xs text-[#0a5bd7] font-semibold hover:text-[#0952c3] hover:underline transition-colors">
                   Forgot Password?
-                </a>
+                </Link>
               </div>
 
-              {/* Buttons: Sign In (Filled) & Sign Up (Outlined) */}
-              <div className="flex items-center space-x-4 pt-6">
+              {/* Buttons: Sign In (Filled) */}
+              <div className="pt-4">
                 <Button
                   type="submit"
-                  className="bg-gradient-to-r from-[#0a5bd7] to-[#2691f5] hover:from-[#0952c3] hover:to-[#1f80dc] text-white rounded-full px-8 py-2.5 font-bold shadow-md shadow-blue-500/20 active:scale-[0.98] transition-all text-sm min-w-[120px] flex items-center justify-center gap-1.5"
+                  className="w-full bg-gradient-to-r from-[#0a5bd7] to-[#2691f5] hover:from-[#0952c3] hover:to-[#1f80dc] text-white rounded-xl py-6 font-bold shadow-lg shadow-blue-500/30 active:scale-[0.98] transition-all text-sm flex items-center justify-center gap-1.5"
                   loading={isSubmitting}
                 >
                   {!isSubmitting && <span>Sign In</span>}
                 </Button>
-
-                <Link
-                  href="/register"
-                  className="border border-slate-200 hover:border-slate-400 hover:bg-slate-50 text-slate-500 rounded-full px-8 py-2.5 font-bold transition-all text-sm text-center min-w-[120px] inline-block"
-                >
-                  Sign Up
-                </Link>
               </div>
             </form>
           </div>

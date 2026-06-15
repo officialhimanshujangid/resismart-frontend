@@ -11,6 +11,15 @@ export interface IUserProfile {
   role: string;
 }
 
+export interface IModulePermission {
+  module: string;
+  moduleLabel: string;
+  canRead: boolean;
+  canCreate: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+}
+
 export interface IUser {
   name: string;
   email: string;
@@ -20,6 +29,7 @@ interface AuthContextType {
   user: IUser | null;
   activeProfile: IUserProfile | null;
   availableProfiles: IUserProfile[];
+  employeePermissions: IModulePermission[] | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; requiresContextSelection?: boolean; error?: string }>;
@@ -27,6 +37,8 @@ interface AuthContextType {
   switchProfileContext: (tenantId: string, role: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  forgotPassword: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  resetPassword: (token: string, password: string) => Promise<{ success: boolean; error?: string; message?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -35,6 +47,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<IUser | null>(null);
   const [activeProfile, setActiveProfile] = useState<IUserProfile | null>(null);
   const [availableProfiles, setAvailableProfiles] = useState<IUserProfile[]>([]);
+  const [employeePermissions, setEmployeePermissions] = useState<IModulePermission[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
   const router = useNextRouter();
@@ -83,6 +96,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (profile) {
           setActiveProfile(profile);
           localStorage.setItem('activeProfile', JSON.stringify(profile));
+
+          // Load employee permissions if SYSTEM_EMPLOYEE
+          if (profile.role === 'SYSTEM_EMPLOYEE') {
+            try {
+              const permRes = await api.get('/system-employees/me/permissions');
+              const perms: IModulePermission[] = permRes.data.permissions ?? [];
+              setEmployeePermissions(perms);
+              localStorage.setItem('employeePermissions', JSON.stringify(perms));
+            } catch (_) {
+              setEmployeePermissions([]);
+            }
+          }
         }
 
       } catch (err) {
@@ -97,9 +122,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Recover temp profiles if any
         const savedProfilesList = localStorage.getItem('availableProfiles');
         if (savedProfilesList) {
-          try {
-            setAvailableProfiles(JSON.parse(savedProfilesList));
-          } catch (_) {}
+          try { setAvailableProfiles(JSON.parse(savedProfilesList)); } catch (_) {}
+        }
+        // Recover cached employee permissions
+        const savedPerms = localStorage.getItem('employeePermissions');
+        if (savedPerms) {
+          try { setEmployeePermissions(JSON.parse(savedPerms)); } catch (_) {}
         }
         setIsLoading(false);
       }
@@ -164,8 +192,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(loggedUser);
       setActiveProfile(profile);
+
+      // Fetch employee permissions if SYSTEM_EMPLOYEE
+      if (profile.role === 'SYSTEM_EMPLOYEE') {
+        try {
+          const permRes = await api.get('/system-employees/me/permissions');
+          const perms: IModulePermission[] = permRes.data.permissions ?? [];
+          setEmployeePermissions(perms);
+          localStorage.setItem('employeePermissions', JSON.stringify(perms));
+        } catch (_) {
+          setEmployeePermissions([]);
+        }
+      }
+
       setIsLoading(false);
-      
       return { success: true };
     } catch (err: any) {
       setIsLoading(false);
@@ -257,9 +297,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('user');
     localStorage.removeItem('tempUserId');
     localStorage.removeItem('availableProfiles');
+    localStorage.removeItem('employeePermissions');
     setUser(null);
     setActiveProfile(null);
+    setEmployeePermissions(null);
     router.push('/login');
+  };
+
+  // Forgot Password
+  const forgotPassword = async (email: string) => {
+    try {
+      const response = await api.post('/auth/forgot-password', { email });
+      return { success: true, message: response.data.message };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.response?.data?.error || err.response?.data?.errors?.[0]?.message || 'Failed to send reset email',
+      };
+    }
+  };
+
+  // Reset Password
+  const resetPassword = async (token: string, password: string) => {
+    try {
+      const response = await api.post('/auth/reset-password', { token, password });
+      return { success: true, message: response.data.message };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.response?.data?.error || err.response?.data?.errors?.[0]?.message || 'Failed to reset password',
+      };
+    }
   };
 
   const isAuthenticated = !!user && !!activeProfile;
@@ -270,6 +338,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         activeProfile,
         availableProfiles,
+        employeePermissions,
         isAuthenticated,
         isLoading,
         login,
@@ -277,6 +346,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         switchProfileContext,
         logout,
         register,
+        forgotPassword,
+        resetPassword,
       }}
     >
       {children}
