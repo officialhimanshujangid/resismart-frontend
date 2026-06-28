@@ -56,14 +56,16 @@ const theme = createTheme({
   },
   shadows: [
     'none',
-    '0px 1px 3px rgba(0, 0, 0, 0.05)',
-    '0px 2px 8px rgba(0, 0, 0, 0.05)',
-    '0px 4px 12px rgba(0, 0, 0, 0.06)',
-    '0px 8px 20px rgba(0, 0, 0, 0.06)',
-    '0px 12px 24px rgba(0, 0, 0, 0.07)',
-    '0px 16px 32px rgba(0, 0, 0, 0.07)',
-    '0px 24px 48px rgba(0, 0, 0, 0.08)',
-    ...Array(17).fill('none'), // fill rest to complete 25 shadows
+    '0px 1px 2px rgba(15, 23, 42, 0.04)',
+    '0px 2px 6px rgba(15, 23, 42, 0.05)',
+    '0px 4px 12px rgba(15, 23, 42, 0.06)',
+    '0px 6px 16px rgba(15, 23, 42, 0.07)',
+    '0px 8px 20px rgba(15, 23, 42, 0.08)',
+    '0px 10px 24px rgba(15, 23, 42, 0.08)',
+    '0px 12px 28px rgba(15, 23, 42, 0.09)',
+    '0px 16px 36px rgba(15, 23, 42, 0.10)',
+    // higher elevations (menus, popovers, tooltips) get real depth instead of "none"
+    ...Array(16).fill('0px 20px 48px rgba(15, 23, 42, 0.14)'),
   ] as any,
   components: {
     MuiButton: {
@@ -245,6 +247,64 @@ const theme = createTheme({
             color: '#475569',
           },
         },
+      },
+    },
+    MuiChip: {
+      styleOverrides: {
+        root: { borderRadius: '8px', fontWeight: 700, fontSize: '0.72rem', height: '24px' },
+        label: { paddingLeft: '8px', paddingRight: '8px' },
+      },
+    },
+    MuiPaper: {
+      styleOverrides: {
+        root: { backgroundImage: 'none' },
+      },
+    },
+    MuiMenu: {
+      styleOverrides: {
+        paper: { borderRadius: '14px', border: '1px solid #eef2f7', marginTop: '4px' },
+      },
+    },
+    MuiMenuItem: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.875rem',
+          fontWeight: 600,
+          borderRadius: '8px',
+          margin: '2px 6px',
+          '&.Mui-selected': { backgroundColor: '#eff6ff', color: '#0a5bd7' },
+          '&.Mui-selected:hover': { backgroundColor: '#dbeafe' },
+        },
+      },
+    },
+    MuiTooltip: {
+      styleOverrides: {
+        tooltip: { backgroundColor: '#0f172a', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 600, padding: '6px 10px' },
+        arrow: { color: '#0f172a' },
+      },
+    },
+    MuiIconButton: {
+      styleOverrides: {
+        root: { borderRadius: '10px', transition: 'all 0.15s ease' },
+      },
+    },
+    MuiSwitch: {
+      styleOverrides: {
+        root: { padding: 8 },
+        switchBase: { '&.Mui-checked': { color: '#10b981' }, '&.Mui-checked + .MuiSwitch-track': { backgroundColor: '#10b981', opacity: 1 } },
+        track: { borderRadius: 20, backgroundColor: '#cbd5e1', opacity: 1 },
+      },
+    },
+    MuiTablePagination: {
+      styleOverrides: {
+        root: { borderTop: '1px solid #f1f5f9' },
+        selectLabel: { fontSize: '0.75rem', fontWeight: 600, color: '#64748b' },
+        displayedRows: { fontSize: '0.75rem', fontWeight: 600, color: '#64748b' },
+      },
+    },
+    MuiDialogActions: {
+      styleOverrides: {
+        root: { padding: '16px 24px 20px' },
       },
     },
   },

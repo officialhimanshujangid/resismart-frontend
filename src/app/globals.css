@@ -123,3 +123,21 @@ body {
   scrollbar-width: thin; /* Firefox thin scrollbar */
   scrollbar-color: #cbd5e1 transparent;
 }
+
+/* Google Places Autocomplete dropdown must sit above MUI dialogs (zIndex 1300) */
+.pac-container {
+  z-index: 13000 !important;
+  border-radius: 12px;
+  margin-top: 4px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  border: 1px solid #e2e8f0;
+  font-family: inherit;
+}
+.pac-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.pac-item:hover {
+  background-color: #f1f5f9;
+}

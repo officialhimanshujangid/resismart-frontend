@@ -1,14 +1,9 @@
 import React from 'react';
 import {
   LayoutDashboard,
-  Users,
-  Home,
-  ShoppingBag,
-  ClipboardList,
   Settings,
   Building,
   DollarSign,
-  Briefcase,
   UsersRound
 } from 'lucide-react';
 
@@ -57,42 +52,46 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         moduleKey: 'societies',
         permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'],
         children: [
-          { label: 'Manage Societies', href: '/dashboard/societies', moduleKey: 'societies_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
-          { label: 'Pending Approvals', href: '/dashboard/societies/pending', moduleKey: 'societies_pending', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] }
+          { label: 'All Societies', href: '/dashboard/societies', moduleKey: 'societies_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'Pending Approvals', href: '/owner/societies', moduleKey: 'societies_pending', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'Trial Societies', href: '/dashboard/societies?life=trial', moduleKey: 'societies_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'Subscribed', href: '/dashboard/societies?life=subscribed', moduleKey: 'societies_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'Expired Plans', href: '/dashboard/societies?life=expired', moduleKey: 'societies_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] }
         ]
       },
       {
-        label: 'Shops',
-        icon: <ShoppingBag className="w-5 h-5" />,
-        moduleKey: 'shops',
-        permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'],
+        label: 'Society Billing',
+        icon: <DollarSign className="w-5 h-5" />,
+        moduleKey: 'billing',
+        permittedUserType: ['SYSTEM_OWNER'],
         children: [
-          { label: 'Manage Shops', href: '/dashboard/shops', moduleKey: 'shops_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
-          { label: 'Categories', href: '/dashboard/shops/categories', moduleKey: 'shops_categories', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] }
-        ]
+          { label: 'Plans & Pricing', href: '/owner/plans', moduleKey: 'billing_plans', permittedUserType: ['SYSTEM_OWNER'] },
+          { label: 'Subscriptions', href: '/owner/subscriptions', moduleKey: 'billing_subscriptions', permittedUserType: ['SYSTEM_OWNER'] },
+          { label: 'Invoices', href: '/owner/invoices', moduleKey: 'billing_invoices', permittedUserType: ['SYSTEM_OWNER'] },
+        ],
       },
       {
-        label: 'Audit Logs',
-        href: '/dashboard/audit-logs',
-        icon: <ClipboardList className="w-5 h-5" />,
-        moduleKey: 'audit-logs',
-        permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE']
-      },
-      {
-        label: 'System Settings',
+        label: 'Society Settings',
         icon: <Settings className="w-5 h-5" />,
-        moduleKey: 'settings',
-        permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'],
-        children: [
-          { label: 'General', href: '/dashboard/settings', moduleKey: 'settings_general', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
-          { label: 'Security', href: '/dashboard/settings/security', moduleKey: 'settings_security', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] }
-        ]
+        moduleKey: 'settings_general',
+        permittedUserType: ['SYSTEM_OWNER'],
+        href: '/dashboard/settings'
       },
-
     ];
     return rawLinks.filter(link => !link.permittedUserType || link.permittedUserType.some(r => role === r || (r === 'RESIDENT_OWNER' && role.startsWith('RESIDENT_'))));
   }
 
+  // Society Admin Links
+  if (role.startsWith('SOCIETY_')) {
+    return [
+      ...defaultLinks,
+      {
+        label: 'Billing & Subscription',
+        icon: <DollarSign className="w-5 h-5" />,
+        href: '/dashboard/billing'
+      }
+    ];
+  }
 
   return defaultLinks;
 };
