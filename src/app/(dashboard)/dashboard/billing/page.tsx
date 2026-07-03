@@ -45,7 +45,7 @@ function loadRazorpay(): Promise<boolean> {
 }
 
 export default function BillingPage() {
-  const { user } = useAuth();
+  const { user, activeProfile } = useAuth();
   const { showToast, confirm } = useToastConfirm();
   const [cancelling, setCancelling] = useState(false);
 
