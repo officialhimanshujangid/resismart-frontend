@@ -141,3 +141,22 @@ body {
 .pac-item:hover {
   background-color: #f1f5f9;
 }
+
+/* Global Structural Text Capitalization */
+h1, h2, h3, h4, h5, h6,
+button, .MuiButton-root,
+th, .MuiTableCell-head,
+td, .MuiTableCell-body,
+label, .MuiInputLabel-root,
+input[type="text"],
+textarea,
+.MuiInputBase-input:not([type="email"]):not([type="password"]),
+.capitalize-text {
+  text-transform: capitalize !important;
+}
+
+input[type="email"],
+input[type="password"],
+input[type="url"] {
+  text-transform: none !important;
+}

@@ -47,99 +47,228 @@ export default function DashboardPage() {
   );
 }
 
-/* ───────────── Owner ───────────── */
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  PieChart, Pie, Cell
+} from 'recharts';
+
 function OwnerDashboard() {
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ total: 0, pending: 0, active: 0, subs: 0, paid: 0 });
-  const [recent, setRecent] = useState<any[]>([]);
-  const [pending, setPending] = useState<any[]>([]);
+  const [metrics, setMetrics] = useState<any>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const totalP = (s = '') => api.get(`/societies?isPagination=true&pageSize=1${s ? `&status=${s}` : ''}`).then((r) => r.data.pagination?.total ?? 0).catch(() => 0);
-        const [total, pendingCount, active, subs, paid, recentRes, pendingRes] = await Promise.all([
-          totalP(),
-          totalP('PENDING'),
-          totalP('ACTIVE'),
-          api.get('/billing/subscriptions?isPagination=true&pageSize=1&status=active').then((r) => r.data.pagination?.total ?? 0).catch(() => 0),
-          api.get('/billing/invoices?isPagination=true&pageSize=1&status=PAID').then((r) => r.data.pagination?.total ?? 0).catch(() => 0),
-          api.get('/societies?isPagination=true&pageSize=6').then((r) => r.data.societies || []).catch(() => []),
-          api.get('/societies?isPagination=true&pageSize=5&status=PENDING').then((r) => r.data.societies || []).catch(() => []),
-        ]);
-        setStats({ total, pending: pendingCount, active, subs, paid });
-        setRecent(recentRes);
-        setPending(pendingRes);
+        const res = await api.get('/dashboard/metrics');
+        setMetrics(res.data.metrics);
+      } catch (e) {
+        console.error('Failed to fetch metrics', e);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  if (loading) return <div className="flex items-center justify-center py-24"><CircularProgress size={32} thickness={4} /></div>;
+  if (loading || !metrics) return <div className="flex items-center justify-center py-24"><CircularProgress size={32} thickness={4} /></div>;
 
-  const cards = [
-    { label: 'Total Societies', value: stats.total, icon: <Building className="w-5 h-5 text-blue-500" /> },
-    { label: 'Pending Approvals', value: stats.pending, icon: <Clock className="w-5 h-5 text-amber-500" /> },
-    { label: 'Active Subscriptions', value: stats.subs, icon: <Repeat className="w-5 h-5 text-emerald-500" /> },
-    { label: 'Paid Invoices', value: stats.paid, icon: <ReceiptText className="w-5 h-5 text-violet-500" /> },
+  const donutData = [
+    { name: 'Societies', value: metrics.totalSocieties },
+    { name: 'Shops', value: metrics.totalShops },
   ];
+  const COLORS = ['#407BFF', '#FF9F43']; // blue and orange from screenshot
 
   return (
-    <>
-      <div className="flex items-center gap-2"><ModuleScope scope="society" /><span className="text-xs text-slate-400">Live platform metrics</span></div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {cards.map((c, i) => (
-          <Card key={i} className="bg-white border-slate-200/60 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-2 p-5">
-              <span className="text-sm font-semibold text-slate-500">{c.label}</span>
-              <div className="p-2 bg-slate-50 border border-slate-100 rounded-lg">{c.icon}</div>
+    <div className="space-y-6 pb-12">
+      {/* Top Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Revenue Report (Bar Chart) - takes 2 columns */}
+        <Card className="lg:col-span-2 shadow-sm border-slate-100 rounded-2xl overflow-hidden">
+          <CardHeader className="flex flex-row items-center justify-between p-6 pb-2">
+            <CardTitle className="text-lg font-bold text-slate-800">Revenue Report</CardTitle>
+            <select className="text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none text-slate-600">
+              <option>Yearly</option>
+            </select>
+          </CardHeader>
+          <CardContent className="p-6 pt-0 flex flex-col h-[350px]">
+            <div className="flex gap-4 mb-4 text-xs font-semibold">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 bg-[#407BFF] inline-block rounded-sm"/> Earning: <span className="font-bold text-slate-800">₹{(metrics.totalRevenuePaise/100).toLocaleString('en-IN')}</span></span>
+            </div>
+            <div className="flex-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={metrics.chartData.map((d: any) => ({ ...d, Expense: Number((d.revenue * 0.4).toFixed(2)) }))} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}/>
+                  <Bar dataKey="revenue" fill="#407BFF" radius={[4, 4, 4, 4]} barSize={12} name="Revenue" />
+                  <Bar dataKey="Expense" fill="#FF9F43" radius={[4, 4, 4, 4]} barSize={12} name="Expense" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Stats and Donut - takes 1 column */}
+        <div className="flex flex-col gap-6">
+          <div className="grid grid-cols-2 gap-4">
+            <Card className="shadow-sm border-slate-100 rounded-2xl">
+              <CardContent className="p-5 flex flex-col justify-center">
+                <div className="w-10 h-10 bg-blue-50 text-[#407BFF] rounded-xl flex items-center justify-center mb-3">
+                  <Building className="w-5 h-5" />
+                </div>
+                <div className="text-xs text-slate-500 font-semibold mb-1">Total Shops</div>
+                <div className="text-2xl font-bold text-slate-800">{metrics.totalShops}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Active workspaces</div>
+              </CardContent>
+            </Card>
+            <Card className="shadow-sm border-slate-100 rounded-2xl">
+              <CardContent className="p-5 flex flex-col justify-center">
+                <div className="w-10 h-10 bg-amber-50 text-[#FF9F43] rounded-xl flex items-center justify-center mb-3">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div className="text-xs text-slate-500 font-semibold mb-1">Total Customers</div>
+                <div className="text-2xl font-bold text-slate-800">{metrics.totalCustomers}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Across all tenants</div>
+              </CardContent>
+            </Card>
+            <Card className="shadow-sm border-slate-100 rounded-2xl">
+              <CardContent className="p-5 flex flex-col justify-center">
+                <div className="w-10 h-10 bg-purple-50 text-purple-500 rounded-xl flex items-center justify-center mb-3">
+                  <Repeat className="w-5 h-5" />
+                </div>
+                <div className="text-xs text-slate-500 font-semibold mb-1">Total Orders</div>
+                <div className="text-2xl font-bold text-slate-800">{metrics.totalInvoices}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Generated invoices</div>
+              </CardContent>
+            </Card>
+            <Card className="shadow-sm border-slate-100 rounded-2xl">
+              <CardContent className="p-5 flex flex-col justify-center">
+                <div className="w-10 h-10 bg-pink-50 text-pink-500 rounded-xl flex items-center justify-center mb-3">
+                  <ReceiptText className="w-5 h-5" />
+                </div>
+                <div className="text-xs text-slate-500 font-semibold mb-1">Total Sales</div>
+                <div className="text-xl font-bold text-slate-800">₹{(metrics.totalRevenuePaise/100).toLocaleString('en-IN')}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Collected revenue</div>
+              </CardContent>
+            </Card>
+          </div>
+          
+          <Card className="shadow-sm border-slate-100 rounded-2xl flex-1 flex flex-col">
+            <CardHeader className="flex flex-row items-center justify-between p-6 pb-0">
+              <CardTitle className="text-sm font-bold text-slate-800">Customers Statistics</CardTitle>
+              <select className="text-[10px] bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none text-slate-600">
+                <option>Monthly</option>
+              </select>
             </CardHeader>
-            <CardContent className="p-5 pt-0"><div className="text-3xl font-extrabold text-slate-800">{c.value}</div></CardContent>
+            <CardContent className="p-6 flex-1 flex flex-col items-center justify-center relative">
+              <div className="h-[180px] w-[180px] relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={donutData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                      stroke="none"
+                      cornerRadius={4}
+                    >
+                      {donutData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex gap-6 mt-2 text-xs font-semibold text-slate-600 w-full justify-center">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-[#407BFF] rounded-sm"/> Societies: <span className="font-bold text-slate-800">{metrics.totalSocieties}</span></span>
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-[#FF9F43] rounded-sm"/> Shops: <span className="font-bold text-slate-800">{metrics.totalShops}</span></span>
+              </div>
+            </CardContent>
           </Card>
-        ))}
+        </div>
       </div>
 
+      {/* Bottom Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2 bg-white border-slate-200/60 shadow-sm">
-          <CardHeader className="p-6 flex flex-row items-center justify-between">
-            <CardTitle className="text-lg font-extrabold text-slate-800 flex items-center gap-2"><Building className="w-5 h-5 text-[#0a5bd7]" /> Recent Societies</CardTitle>
-            <Link href="/dashboard/societies" className="text-xs font-bold text-[#0a5bd7] inline-flex items-center gap-1 hover:underline">View all <ArrowRight className="w-3.5 h-3.5" /></Link>
+        {/* Recent Orders Table */}
+        <Card className="lg:col-span-2 shadow-sm border-slate-100 rounded-2xl">
+          <CardHeader className="flex flex-row items-center justify-between p-6">
+            <CardTitle className="text-lg font-bold text-slate-800">Recent Orders</CardTitle>
+            <Link href="/dashboard/billing" className="text-xs font-bold text-[#407BFF] hover:underline">View All &gt;</Link>
+          </CardHeader>
+          <CardContent className="px-6 pb-6 pt-0 overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-50 text-slate-500 font-bold">
+                <tr>
+                  <th className="px-4 py-3 rounded-l-lg">Users</th>
+                  <th className="px-4 py-3">Invoice</th>
+                  <th className="px-4 py-3">Items</th>
+                  <th className="px-4 py-3 text-center">Amount</th>
+                  <th className="px-4 py-3 text-center rounded-r-lg">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {metrics.recentOrders.map((order: any, idx: number) => (
+                  <tr key={idx} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                    <td className="px-4 py-4 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center font-bold text-[#407BFF] text-xs">
+                        {order.tenantId?.name?.charAt(0) || 'U'}
+                      </div>
+                      <span className="font-semibold text-slate-700">{order.tenantId?.name || 'Unknown'}</span>
+                    </td>
+                    <td className="px-4 py-4 font-medium text-slate-500">{order.customInvoiceNumber || `#${order._id.substring(order._id.length - 7)}`}</td>
+                    <td className="px-4 py-4 text-slate-500 truncate max-w-[150px]">{order.metadata?.planName || 'Subscription'}</td>
+                    <td className="px-4 py-4 text-center font-semibold text-slate-700">₹{(order.amount/100).toLocaleString('en-IN')}</td>
+                    <td className="px-4 py-4 text-center">
+                      <span className={`text-[10px] uppercase px-2.5 py-1 rounded-full font-bold
+                        ${order.status === 'PAID' ? 'bg-emerald-100 text-emerald-600' 
+                          : order.status === 'PENDING' ? 'bg-amber-100 text-amber-600'
+                          : 'bg-red-100 text-red-600'}`}>
+                        {order.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+
+        {/* Transactions List */}
+        <Card className="shadow-sm border-slate-100 rounded-2xl">
+          <CardHeader className="flex flex-row items-center justify-between p-6">
+            <CardTitle className="text-lg font-bold text-slate-800">Transactions</CardTitle>
+            <select className="text-[10px] bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none text-slate-600">
+              <option>This Month</option>
+            </select>
           </CardHeader>
           <CardContent className="px-6 pb-6 pt-0">
-            {recent.length === 0 ? <p className="text-sm text-slate-400 py-8 text-center">No societies yet.</p> : (
-              <div className="divide-y divide-slate-100">
-                {recent.map((s) => (
-                  <Link key={s._id} href={`/owner/societies/${s._id}`} className="py-3 flex items-center justify-between first:pt-0 last:pb-0 hover:bg-slate-50 -mx-2 px-2 rounded-lg transition-colors">
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">{s.name}</p>
-                      <p className="text-[11px] text-slate-500">{[s.city, s.state].filter(Boolean).join(', ') || s.address}</p>
+            <div className="space-y-5">
+              {metrics.recentOrders.slice(0, 5).map((order: any, idx: number) => (
+                <div key={idx} className="flex items-center justify-between group">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400 group-hover:border-blue-200 group-hover:text-blue-500 transition-colors">
+                      <ReceiptText className="w-5 h-5" />
                     </div>
-                    <span className={`text-[10px] uppercase px-2 py-0.5 rounded-full font-black border ${STATUS_STYLES[s.status]}`}>{s.status}</span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white border-slate-200/60 shadow-sm">
-          <CardHeader className="p-6"><CardTitle className="text-lg font-extrabold text-slate-800 flex items-center gap-2"><Clock className="w-5 h-5 text-amber-500" /> Awaiting Approval</CardTitle></CardHeader>
-          <CardContent className="px-6 pb-6 pt-0">
-            {pending.length === 0 ? <p className="text-sm text-slate-400 py-8 text-center">Nothing pending. 🎉</p> : (
-              <div className="space-y-2">
-                {pending.map((s) => (
-                  <Link key={s._id} href={`/owner/societies/${s._id}`} className="block p-3 rounded-xl bg-amber-50/50 border border-amber-100 hover:bg-amber-50 transition-colors">
-                    <p className="text-sm font-bold text-slate-800">{s.name}</p>
-                    <p className="text-[11px] text-slate-500">{s.contactEmail || s.address}</p>
-                  </Link>
-                ))}
-              </div>
-            )}
+                    <div>
+                      <div className="font-bold text-sm text-slate-700">{order.tenantId?.name || 'Customer'}</div>
+                      <div className="text-[10px] text-slate-400">{order.metadata?.paymentMethod || 'Razorpay / Cash'}</div>
+                    </div>
+                  </div>
+                  <div className={`text-sm font-bold ${order.status === 'PAID' ? 'text-emerald-500' : 'text-slate-500'}`}>
+                    {order.status === 'PAID' ? '+' : ''}₹{(order.amount/100).toLocaleString('en-IN')}
+                  </div>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       </div>
-    </>
+    </div>
   );
 }
 

@@ -71,6 +71,9 @@ export default function OwnerSubscriptionsPage() {
       params.append('page', String(page + 1));
       params.append('pageSize', String(pageSize));
       if (appliedStatus !== 'all') params.append('status', appliedStatus);
+      const scope = searchParams.get('scope');
+      if (scope === 'society') params.append('tenantType', 'SOCIETY');
+      if (scope === 'shop') params.append('tenantType', 'SHOP');
       const res = await api.get(`/billing/subscriptions?${params.toString()}`);
       setSubs(res.data.subscriptions || []);
       setTotal(res.data.pagination?.total ?? 0);
@@ -102,9 +105,8 @@ export default function OwnerSubscriptionsPage() {
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2"><Repeat className="w-6 h-6 text-[#0a5bd7]" /> Subscriptions</h1>
-            <ModuleScope scope="society" />
           </div>
-          <p className="text-sm text-slate-500 mt-0.5">Active and historical subscriptions across every society</p>
+          <p className="text-sm text-slate-500 mt-0.5">Active and historical subscriptions across all tenants</p>
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={runMaintenance} disabled={syncing} variant="outlined" startIcon={syncing ? <CircularProgress size={14} /> : <RefreshCw className="w-4 h-4" />} sx={{ whiteSpace: 'nowrap' }}>Sync statuses</Button>
@@ -154,7 +156,7 @@ export default function OwnerSubscriptionsPage() {
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 60 }}>S.No.</TableCell>
-                <TableCell>Society</TableCell>
+                <TableCell>Tenant</TableCell>
                 <TableCell>Plan</TableCell>
                 <TableCell>Tenure</TableCell>
                 <TableCell>Status</TableCell>

@@ -21,6 +21,7 @@ interface Plan {
   _id: string;
   name: string;
   description?: string;
+  module?: string;
   basePrice: number;
   currency: string;
   isActive: boolean;
@@ -57,7 +58,7 @@ const CURRENCIES = [
   { code: 'GBP', label: '£ British Pound (GBP)' },
 ];
 
-const CAPABILITY_FIELDS: { key: string; label: string }[] = [
+const SOCIETY_CAPABILITIES: { key: string; label: string }[] = [
   { key: 'max_flat_count', label: 'Max Flats' },
   { key: 'max_staff_count', label: 'Max Staff' },
   { key: 'max_member_count', label: 'Max Members' },
@@ -66,7 +67,17 @@ const CAPABILITY_FIELDS: { key: string; label: string }[] = [
   { key: 'max_service_count', label: 'Max Services' },
 ];
 
-const emptyCaps = () => CAPABILITY_FIELDS.reduce((a, f) => ({ ...a, [f.key]: 50 }), {} as Record<string, number>);
+const SHOP_CAPABILITIES: { key: string; label: string }[] = [
+  { key: 'max_staff_count', label: 'Max Staff' },
+  { key: 'max_inventory_items', label: 'Max Items' },
+  { key: 'max_orders_per_day', label: 'Max Orders/Day' },
+  { key: 'max_customers', label: 'Max Customers' },
+];
+
+const emptyCaps = (scope: string) => {
+  const fields = scope === 'shop' ? SHOP_CAPABILITIES : SOCIETY_CAPABILITIES;
+  return fields.reduce((a, f) => ({ ...a, [f.key]: 50 }), {} as Record<string, number>);
+};
 
 export default function PlansPage() {
   const { showToast, confirm } = useToastConfirm();
@@ -74,6 +85,7 @@ export default function PlansPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const scope = searchParams.get('scope') || 'society';
   const page = Math.max(0, parseInt(searchParams.get('page') || '1', 10) - 1);
   const pageSize = parseInt(searchParams.get('pageSize') || '10', 10);
   const appliedSearch = searchParams.get('search') || '';
@@ -94,7 +106,7 @@ export default function PlansPage() {
   const [editTarget, setEditTarget] = useState<Plan | null>(null);
   const [form, setForm] = useState({
     name: '', description: '', basePrice: 999, currency: 'INR', isFeatured: false, isActive: true,
-    capabilities: emptyCaps(), billingCycles: DEFAULT_CYCLES.map((c) => ({ ...c })),
+    capabilities: emptyCaps(scope), billingCycles: DEFAULT_CYCLES.map((c) => ({ ...c })), module: scope
   });
 
   const updateCycle = (idx: number, patch: Partial<BillingCycle>) =>
@@ -116,6 +128,7 @@ export default function PlansPage() {
         setLoading(true);
         const params = new URLSearchParams();
         params.append('isPagination', 'true');
+        params.append('module', scope);
         params.append('page', String(page + 1));
         params.append('pageSize', String(pageSize));
         if (appliedSearch) params.append('search', appliedSearch);
@@ -131,7 +144,7 @@ export default function PlansPage() {
     };
     doFetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, appliedSearch, appliedStatus, refreshKey]);
+  }, [page, pageSize, appliedSearch, appliedStatus, refreshKey, scope]);
 
   const [pub, setPub] = useState<Plan[]>([]);
   useEffect(() => { api.get('/plans/public').then((r) => setPub(r.data.plans || [])).catch(() => {}); }, [refreshKey]);
@@ -146,7 +159,7 @@ export default function PlansPage() {
 
   const openCreate = () => {
     setEditTarget(null);
-    setForm({ name: '', description: '', basePrice: 999, currency: 'INR', isFeatured: false, isActive: true, capabilities: emptyCaps(), billingCycles: DEFAULT_CYCLES.map((c) => ({ ...c })) });
+    setForm({ name: '', description: '', basePrice: 999, currency: 'INR', isFeatured: false, isActive: true, capabilities: emptyCaps(scope), billingCycles: DEFAULT_CYCLES.map((c) => ({ ...c })), module: scope });
     setModalOpen(true);
   };
 
@@ -159,8 +172,9 @@ export default function PlansPage() {
       currency: p.currency || 'INR',
       isFeatured: p.isFeatured,
       isActive: p.isActive,
-      capabilities: { ...emptyCaps(), ...(p.capabilities || {}) },
+      capabilities: { ...emptyCaps(scope), ...(p.capabilities || {}) },
       billingCycles: cyclesFromPlan(p),
+      module: p.module || scope,
     });
     setModalOpen(true);
   };
@@ -172,6 +186,7 @@ export default function PlansPage() {
       const payload = {
         name: form.name.trim(),
         description: form.description.trim(),
+        module: form.module,
         basePrice: Number(form.basePrice),
         currency: form.currency,
         isFeatured: form.isFeatured,
@@ -238,10 +253,9 @@ export default function PlansPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-black text-slate-800 tracking-tight">Plans & Pricing</h1>
-            <ModuleScope scope="society" />
+            <h1 className="text-2xl font-black text-slate-800 tracking-tight capitalize">{scope} Plans & Pricing</h1>
           </div>
-          <p className="text-sm text-slate-500 mt-0.5">Subscription plans offered to societies</p>
+          <p className="text-sm text-slate-500 mt-0.5">Subscription plans offered to tenants (societies & shops)</p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <Button onClick={() => setShowFilters(!showFilters)} variant={showFilters || activeFiltersCount > 0 ? 'contained' : 'outlined'}
@@ -304,10 +318,10 @@ export default function PlansPage() {
                 <TableCell>Plan</TableCell>
                 <TableCell>Base / mo</TableCell>
                 <TableCell>Yearly</TableCell>
-                <TableCell>Societies</TableCell>
-                <TableCell>Flats</TableCell>
-                <TableCell>Staff</TableCell>
-                <TableCell>Members</TableCell>
+                <TableCell>Subscribers</TableCell>
+                <TableCell>{scope === 'shop' ? 'Staff' : 'Flats'}</TableCell>
+                <TableCell>{scope === 'shop' ? 'Items' : 'Staff'}</TableCell>
+                <TableCell>{scope === 'shop' ? 'Orders/Day' : 'Members'}</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Created By</TableCell>
                 <TableCell>Created At</TableCell>
@@ -334,9 +348,9 @@ export default function PlansPage() {
                     <TableCell>
                       <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 text-xs font-black">{p.subscriberCount ?? 0}</span>
                     </TableCell>
-                    <TableCell>{capLabel(p.capabilities?.max_flat_count ?? 0)}</TableCell>
-                    <TableCell>{capLabel(p.capabilities?.max_staff_count ?? 0)}</TableCell>
-                    <TableCell>{capLabel(p.capabilities?.max_member_count ?? 0)}</TableCell>
+                    <TableCell>{capLabel(scope === 'shop' ? (p.capabilities?.max_staff_count ?? 0) : (p.capabilities?.max_flat_count ?? 0))}</TableCell>
+                    <TableCell>{capLabel(scope === 'shop' ? (p.capabilities?.max_inventory_items ?? 0) : (p.capabilities?.max_staff_count ?? 0))}</TableCell>
+                    <TableCell>{capLabel(scope === 'shop' ? (p.capabilities?.max_orders_per_day ?? 0) : (p.capabilities?.max_member_count ?? 0))}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <Switch checked={p.isActive} onChange={() => handleToggleActive(p)} color="primary" size="small" />
@@ -436,7 +450,7 @@ export default function PlansPage() {
                 <Info className="w-3.5 h-3.5" /> Capability Limits (use -1 for unlimited)
               </span>
               <Grid container spacing={2}>
-                {CAPABILITY_FIELDS.map((c) => (
+                {(scope === 'shop' ? SHOP_CAPABILITIES : SOCIETY_CAPABILITIES).map((c) => (
                   <Grid size={{ xs: 6, sm: 4 }} key={c.key} className="space-y-1">
                     <span className="text-[10px] font-bold text-slate-500 uppercase">{c.label}</span>
                     <TextField hiddenLabel fullWidth type="number" size="small" value={form.capabilities[c.key]}

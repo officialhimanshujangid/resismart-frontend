@@ -35,7 +35,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowe
           <div className="absolute inset-0 rounded-full border-4 border-violet-500/20 animate-pulse" />
           <div className="absolute inset-0 rounded-full border-4 border-t-violet-500 border-r-transparent border-b-transparent border-l-transparent animate-spin" />
         </div>
-        <p className="text-sm text-slate-400 font-medium tracking-wide animate-pulse">Loading ResiSmart Portal...</p>
+        <p className="text-sm text-slate-400 font-medium tracking-wide animate-pulse">Loading Resismart Portal...</p>
       </div>
     );
   }

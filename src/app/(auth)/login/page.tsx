@@ -8,20 +8,20 @@ import { Button } from '../../../components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
-import { 
-  Rocket, 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  Check, 
-  Building 
+import {
+  Rocket,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Check,
+  Building
 } from 'lucide-react';
 
 export default function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -38,7 +38,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    
+
     if (!email || !password) {
       setError('Please fill in all fields.');
       return;
@@ -47,7 +47,7 @@ export default function LoginPage() {
     try {
       setIsSubmitting(true);
       const result = await login(email, password);
-      
+
       if (!result.success) {
         setError(result.error || 'Invalid credentials');
       } else {
@@ -70,10 +70,10 @@ export default function LoginPage() {
     <div className="min-h-screen bg-slate-200/70 flex items-center justify-center p-4 md:p-8">
       {/* Container Card */}
       <div className="w-full max-w-5xl bg-white rounded-[32px] shadow-2xl overflow-hidden flex flex-col lg:flex-row relative min-h-[580px] lg:h-[620px] border border-white/60">
-        
+
         {/* LEFT PANEL: Branding & Visuals (Desktop & Mobile header) */}
         <div className="w-full lg:w-[42%] bg-gradient-to-b from-[#0a5bd7] to-[#2691f5] p-8 lg:p-12 flex flex-col justify-between text-white relative min-h-[260px] lg:min-h-full">
-          
+
           {/* Subtle radial overlay */}
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.08),transparent_60%)] pointer-events-none" />
 
@@ -90,7 +90,7 @@ export default function LoginPage() {
             </div>
             {/* Brand Title */}
             <h1 className="text-3xl lg:text-4xl font-extrabold tracking-tight mt-4 text-white">
-              ResiSmart
+              Resismart
             </h1>
             {/* Tagline */}
             <p className="text-white/70 text-xs lg:text-sm text-center max-w-xs mt-3 leading-relaxed hidden lg:block">
@@ -151,7 +151,7 @@ export default function LoginPage() {
 
         {/* RIGHT PANEL: Form Inputs (Desktop & Mobile bottom) */}
         <div className="flex-1 p-8 md:p-12 lg:p-16 flex flex-col justify-center bg-white relative z-0">
-          
+
           <div className="w-full max-w-md mx-auto space-y-8">
             {/* Header Title */}
             <div className="space-y-1">
@@ -211,7 +211,7 @@ export default function LoginPage() {
                     className="border border-slate-200 bg-slate-50 rounded-xl px-4 py-6 pr-12 focus:border-[#0a5bd7] focus:ring-2 focus:ring-[#0a5bd7]/20 transition-all text-slate-800 placeholder:text-slate-400 text-sm w-full font-medium"
                     disabled={isSubmitting}
                   />
-                  
+
                   {/* Status checklist and show/hide */}
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center space-x-1.5">
                     {password.length >= 6 && (

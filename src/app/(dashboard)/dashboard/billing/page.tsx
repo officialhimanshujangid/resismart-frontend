@@ -95,7 +95,7 @@ export default function BillingPage() {
       setLoading(true);
       await Promise.all([
         fetchSubscription(),
-        api.get('/plans/public').then((r) => setPlans(r.data.plans || [])).catch(() => {}),
+        api.get(`/plans/public?module=${activeProfile?.role.startsWith('SHOP_') ? 'shop' : 'society'}`).then((r) => setPlans(r.data.plans || [])).catch(() => { }),
       ]);
       setLoading(false);
     })();
@@ -133,7 +133,7 @@ export default function BillingPage() {
       const rzp = new (window as any).Razorpay({
         key: keyId,
         subscription_id: subscriptionId,
-        name: 'ResiSmart',
+        name: 'Resismart',
         description: `${plan.name} — ${tenure} (auto-renews)`,
         prefill: { name: user?.name, email: user?.email },
         theme: { color: '#0a5bd7' },

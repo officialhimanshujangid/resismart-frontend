@@ -16,6 +16,7 @@ import { useToastConfirm } from '@/context/ToastConfirmContext';
 import LocationPicker from '@/components/common/LocationPicker';
 import ModuleScope from '@/components/common/ModuleScope';
 import StatCard from '@/components/common/StatCard';
+import SocietiesMap from '@/components/societies/SocietiesMap';
 
 interface Society {
   _id: string;
@@ -82,6 +83,10 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
   const [refreshKey, setRefreshKey] = useState(0);
   const refresh = () => setRefreshKey((k) => k + 1);
 
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+  const [mapSocieties, setMapSocieties] = useState<Society[]>([]);
+  const [mapLoading, setMapLoading] = useState(false);
+
   const [showFilters, setShowFilters] = useState(false);
   const [searchTerm, setSearchTerm] = useState(appliedSearch);
   const [statusFilter, setStatusFilter] = useState(appliedStatus);
@@ -132,7 +137,18 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
   }, [page, pageSize, appliedSearch, appliedStatus, life]);
 
   useEffect(() => { fetchSocieties(); }, [fetchSocieties, refreshKey]);
-  useEffect(() => { api.get('/plans/public').then((r) => setPlans(r.data.plans || [])).catch(() => {}); }, []);
+
+  useEffect(() => {
+    if (viewMode === 'map' && mapSocieties.length === 0) {
+      setMapLoading(true);
+      api.get('/societies?isPagination=false')
+        .then(res => setMapSocieties(res.data.societies || []))
+        .catch(() => showToast('Failed to load map data', 'error'))
+        .finally(() => setMapLoading(false));
+    }
+  }, [viewMode, refreshKey]);
+
+  useEffect(() => { api.get('/plans/public?module=society').then((r) => setPlans(r.data.plans || [])).catch(() => {}); }, []);
 
   // KPI summary
   const [stats, setStats] = useState({ total: 0, pending: 0, active: 0, expired: 0 });
@@ -269,7 +285,12 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
         <StatCard label="Expired Plans" value={stats.expired} loading={statsLoading} tone="rose" icon={<Ban className="w-5 h-5" />} />
       </div>
 
-      <Collapse in={showFilters}>
+      <div className="flex items-center gap-4 border-b border-slate-200">
+        <button onClick={() => setViewMode('list')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${viewMode === 'list' ? 'border-[#0a5bd7] text-[#0a5bd7]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>List View</button>
+        <button onClick={() => setViewMode('map')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${viewMode === 'map' ? 'border-[#0a5bd7] text-[#0a5bd7]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Map View</button>
+      </div>
+
+      <Collapse in={showFilters && viewMode === 'list'}>
         <Paper elevation={0} className="p-5 rounded-2xl border border-slate-200/60 bg-slate-50/40 space-y-4">
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 6 }} className="space-y-1">
@@ -296,6 +317,7 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
         </Paper>
       </Collapse>
 
+      {viewMode === 'list' && (
       <TableContainer component={Paper} elevation={1} className="rounded-2xl border border-slate-200/60 shadow-sm overflow-x-auto">
         {loading ? (
           <div className="flex items-center justify-center py-20 bg-white"><CircularProgress size={32} thickness={4} /></div>
@@ -364,6 +386,17 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
           rowsPerPage={pageSize} onRowsPerPageChange={(e) => updateUrl({ pageSize: e.target.value, page: '1' })}
           rowsPerPageOptions={[5, 10, 25, 50]} sx={{ borderTop: '1px solid #f1f5f9', backgroundColor: '#fff' }} />
       </TableContainer>
+      )}
+
+      {viewMode === 'map' && (
+        <Paper elevation={1} className="rounded-2xl border border-slate-200/60 shadow-sm p-2 bg-white">
+          {mapLoading ? (
+            <div className="flex items-center justify-center py-32"><CircularProgress size={32} thickness={4} /></div>
+          ) : (
+            <SocietiesMap societies={mapSocieties} height={600} />
+          )}
+        </Paper>
+      )}
 
       {/* Add / Edit Society */}
       <Dialog open={formOpen} onClose={() => setFormOpen(false)} slots={{ transition: Zoom }} maxWidth="md" fullWidth
@@ -384,7 +417,15 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
             <div className="space-y-1">
               <span className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> Pin Location</span>
               <LocationPicker latitude={form.latitude} longitude={form.longitude}
-                onChange={(v) => setForm((f) => ({ ...f, latitude: v.latitude, longitude: v.longitude, ...(v.address ? { address: v.address } : {}) }))} />
+                onChange={(v) => setForm((f) => ({ 
+                  ...f, 
+                  latitude: v.latitude, 
+                  longitude: v.longitude, 
+                  ...(v.address ? { address: v.address } : {}),
+                  ...(v.city ? { city: v.city } : {}),
+                  ...(v.state ? { state: v.state } : {}),
+                  ...(v.pincode ? { pincode: v.pincode } : {}),
+                }))} />
               <Grid container spacing={2} className="pt-1">
                 <Grid size={{ xs: 6 }}><TextField label="Latitude" size="small" fullWidth value={form.latitude} onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))} /></Grid>
                 <Grid size={{ xs: 6 }}><TextField label="Longitude" size="small" fullWidth value={form.longitude} onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))} /></Grid>

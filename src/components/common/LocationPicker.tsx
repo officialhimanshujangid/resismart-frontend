@@ -7,7 +7,7 @@ const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 const DEFAULT_CENTER = { lat: 28.6273, lng: 77.3649 };
 
 declare global {
-  interface Window { google?: any; __gmapsLoading?: Promise<void>; }
+  interface Window { google?: any; __gmapsLoading?: Promise<void>; __gmapsCallback?: () => void; }
 }
 
 export function loadGoogleMaps(): Promise<void> {
@@ -15,10 +15,13 @@ export function loadGoogleMaps(): Promise<void> {
   if (window.google?.maps?.places) return Promise.resolve();
   if (window.__gmapsLoading) return window.__gmapsLoading;
   window.__gmapsLoading = new Promise<void>((resolve, reject) => {
+    window.__gmapsCallback = () => {
+      resolve();
+    };
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places&callback=__gmapsCallback`;
     script.async = true;
-    script.onload = () => resolve();
+    script.defer = true;
     script.onerror = () => reject(new Error('Failed to load Google Maps'));
     document.head.appendChild(script);
   });
@@ -28,9 +31,21 @@ export function loadGoogleMaps(): Promise<void> {
 interface Props {
   latitude?: string | number;
   longitude?: string | number;
-  onChange: (v: { latitude: string; longitude: string; address?: string }) => void;
+  onChange: (v: { latitude: string; longitude: string; address?: string; city?: string; state?: string; pincode?: string }) => void;
   height?: number;
 }
+
+const parseAddressComponents = (components: any[]) => {
+  let city = '', state = '', pincode = '';
+  if (!components) return { city, state, pincode };
+  for (const comp of components) {
+    if (comp.types.includes('locality')) city = comp.long_name;
+    else if (!city && comp.types.includes('administrative_area_level_2')) city = comp.long_name;
+    if (comp.types.includes('administrative_area_level_1')) state = comp.long_name;
+    if (comp.types.includes('postal_code')) pincode = comp.long_name;
+  }
+  return { city, state, pincode };
+};
 
 export default function LocationPicker({ latitude, longitude, onChange, height = 200 }: Props) {
   const mapDivRef = useRef<HTMLDivElement>(null);
@@ -52,7 +67,12 @@ export default function LocationPicker({ latitude, longitude, onChange, height =
   const reverseGeocode = (lat: number, lng: number, withAddress: boolean) => {
     if (withAddress && geocoderRef.current) {
       geocoderRef.current.geocode({ location: { lat, lng } }, (results: any, status: string) => {
-        onChange({ latitude: lat.toFixed(6), longitude: lng.toFixed(6), address: status === 'OK' && results?.[0] ? results[0].formatted_address : undefined });
+        if (status === 'OK' && results?.[0]) {
+          const { city, state, pincode } = parseAddressComponents(results[0].address_components);
+          onChange({ latitude: lat.toFixed(6), longitude: lng.toFixed(6), address: results[0].formatted_address, city, state, pincode });
+        } else {
+          onChange({ latitude: lat.toFixed(6), longitude: lng.toFixed(6) });
+        }
       });
     } else {
       onChange({ latitude: lat.toFixed(6), longitude: lng.toFixed(6) });
@@ -116,14 +136,15 @@ export default function LocationPicker({ latitude, longitude, onChange, height =
         map.addListener('click', (e: any) => { marker.setPosition(e.latLng); reverseGeocode(e.latLng.lat(), e.latLng.lng(), true); });
 
         if (searchRef.current) {
-          const ac = new window.google.maps.places.Autocomplete(searchRef.current, { fields: ['geometry', 'formatted_address', 'name'] });
+          const ac = new window.google.maps.places.Autocomplete(searchRef.current, { fields: ['geometry', 'formatted_address', 'name', 'address_components'] });
           ac.bindTo('bounds', map);
           ac.addListener('place_changed', () => {
             const place = ac.getPlace();
             if (!place.geometry?.location) return;
             const loc = place.geometry.location;
             moveTo(loc.lat(), loc.lng());
-            onChange({ latitude: loc.lat().toFixed(6), longitude: loc.lng().toFixed(6), address: place.formatted_address });
+            const { city, state, pincode } = parseAddressComponents(place.address_components);
+            onChange({ latitude: loc.lat().toFixed(6), longitude: loc.lng().toFixed(6), address: place.formatted_address, city, state, pincode });
           });
         }
 

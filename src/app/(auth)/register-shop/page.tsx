@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import api from '@/lib/api';
 import {
-  MapPin, Building, User, Mail, Phone, CheckCircle2, ArrowRight, ArrowLeft, Navigation, Loader2, AlertCircle,
+  MapPin, Store, User, Mail, Phone, CheckCircle2, ArrowRight, ArrowLeft, Navigation, Loader2, AlertCircle, FileText, ShoppingCart, Lock
 } from 'lucide-react';
 
 const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -33,13 +33,14 @@ function loadGoogleMaps(): Promise<void> {
   return window.__gmapsLoading;
 }
 
-export default function RegisterSocietyPage() {
+export default function RegisterShopPage() {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
-    name: '', address: '', contactName: '', contactEmail: '', contactPhone: '',
+    name: '', address: '', contactNumber: '', gstNumber: '', storeType: '', typeService: '', salesAndProduct: '',
     latitude: DEFAULT_CENTER.lat.toString(), longitude: DEFAULT_CENTER.lng.toString(),
+    adminEmail: '', password: ''
   });
 
   const mapRef = useRef<HTMLDivElement>(null);
@@ -63,7 +64,6 @@ export default function RegisterSocietyPage() {
     });
   }, []);
 
-  // Initialise map + autocomplete when entering step 1
   useEffect(() => {
     if (step !== 1) return;
     let cancelled = false;
@@ -114,12 +114,16 @@ export default function RegisterSocietyPage() {
     setError('');
     setSubmitting(true);
     try {
-      await api.post('/societies/register-public', {
+      await api.post('/shops/register-public', {
         name: formData.name.trim(),
         address: formData.address.trim(),
-        contactName: formData.contactName.trim(),
-        contactEmail: formData.contactEmail.trim(),
-        contactPhone: formData.contactPhone.trim() || undefined,
+        contactNumber: formData.contactNumber.trim(),
+        gstNumber: formData.gstNumber.trim() || undefined,
+        storeType: formData.storeType.trim() || undefined,
+        typeService: formData.typeService.trim() || undefined,
+        salesAndProduct: formData.salesAndProduct.trim() || undefined,
+        adminEmail: formData.adminEmail.trim(),
+        password: formData.password,
         latitude: formData.latitude ? Number(formData.latitude) : undefined,
         longitude: formData.longitude ? Number(formData.longitude) : undefined,
       });
@@ -138,13 +142,13 @@ export default function RegisterSocietyPage() {
         <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl -mr-20 -mt-20" />
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-cyan-400/10 rounded-full blur-3xl -ml-20 -mb-20" />
         <div className="flex items-center gap-3 relative z-10">
-          <div className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20"><Building className="w-5 h-5 text-white" /></div>
-          <span className="text-xl font-black tracking-tight">Resismart</span>
+          <div className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20"><Store className="w-5 h-5 text-white" /></div>
+          <span className="text-xl font-black tracking-tight">Resismart Shops</span>
         </div>
         <div className="space-y-6 relative z-10">
-          <Badge className="bg-white/10 text-cyan-200 hover:bg-white/15 border-white/10 w-fit">Next-Gen Society Management</Badge>
-          <h2 className="text-4xl font-black leading-tight">Streamline your gated community operations.</h2>
-          <p className="text-slate-200 text-md font-medium max-w-md">Pin your exact location, manage visitors and staff, and automate maintenance billing — all in one place.</p>
+          <Badge className="bg-white/10 text-cyan-200 hover:bg-white/15 border-white/10 w-fit">Next-Gen Shop Management</Badge>
+          <h2 className="text-4xl font-black leading-tight">Streamline your shop operations.</h2>
+          <p className="text-slate-200 text-md font-medium max-w-md">Register your business, manage sales, and organize your products — all in one place.</p>
         </div>
         <div className="text-slate-300 text-xs font-semibold relative z-10">© 2026 Resismart Technology. All rights reserved.</div>
       </div>
@@ -156,12 +160,12 @@ export default function RegisterSocietyPage() {
             <div className="flex items-center gap-4 justify-center sm:justify-start">
               <div className="flex items-center gap-2">
                 <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black ${step === 1 ? 'bg-[#0a5bd7] text-white shadow-md' : 'bg-emerald-100 text-emerald-800'}`}>{step > 1 ? <CheckCircle2 className="w-4 h-4" /> : '1'}</span>
-                <span className="text-xs font-black text-slate-700">Society & Location</span>
+                <span className="text-xs font-black text-slate-700">Shop Details</span>
               </div>
               <div className="w-8 h-px bg-slate-300" />
               <div className="flex items-center gap-2">
                 <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black ${step === 2 ? 'bg-[#0a5bd7] text-white shadow-md' : 'bg-slate-200 text-slate-500'}`}>2</span>
-                <span className="text-xs font-black text-slate-700">Admin Contact</span>
+                <span className="text-xs font-black text-slate-700">Admin Account</span>
               </div>
             </div>
           )}
@@ -169,24 +173,24 @@ export default function RegisterSocietyPage() {
           {step === 1 && (
             <Card className="shadow-xl border border-slate-200/80">
               <CardHeader>
-                <CardTitle className="text-2xl font-black text-slate-800">Register Society</CardTitle>
-                <CardDescription>Search your society, then drag the pin to fine-tune the exact location.</CardDescription>
+                <CardTitle className="text-2xl font-black text-slate-800">Register Shop</CardTitle>
+                <CardDescription>Enter your shop details and pinpoint your location.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
                 <div className="space-y-1.5">
                   <Label className="font-bold text-slate-700">Search location</Label>
                   <div className="relative">
                     <Navigation className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 z-10" />
-                    <input ref={searchRef} placeholder="Search society or area..." disabled={mapError}
+                    <input ref={searchRef} placeholder="Search shop or area..." disabled={mapError}
                       className="w-full pl-9 pr-3 h-11 rounded-xl border border-slate-200/80 text-sm outline-none focus:border-[#0a5bd7] focus:ring-2 focus:ring-[#0a5bd7]/15" />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="sName" className="font-bold text-slate-700">Society Name</Label>
+                  <Label htmlFor="sName" className="font-bold text-slate-700">Shop Name</Label>
                   <div className="relative">
-                    <Building className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                    <Input id="sName" placeholder="e.g. Greenwood Cooperative Society" className="pl-9 rounded-xl border-slate-200/80 h-11"
+                    <Store className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                    <Input id="sName" placeholder="e.g. Fresh Mart" className="pl-9 rounded-xl border-slate-200/80 h-11"
                       value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
                   </div>
                 </div>
@@ -197,6 +201,61 @@ export default function RegisterSocietyPage() {
                     <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                     <Input id="sAddr" placeholder="Street, District, State..." className="pl-9 rounded-xl border-slate-200/80 h-11"
                       value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sContact" className="font-bold text-slate-700">Contact Number</Label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                      <Input id="sContact" placeholder="+91 ..." className="pl-9 rounded-xl border-slate-200/80 h-11"
+                        value={formData.contactNumber} onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sGst" className="font-bold text-slate-700">GST Number</Label>
+                    <div className="relative">
+                      <FileText className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                      <Input id="sGst" placeholder="22AAAAA0000A1Z5" className="pl-9 rounded-xl border-slate-200/80 h-11"
+                        value={formData.gstNumber} onChange={(e) => setFormData({ ...formData, gstNumber: e.target.value })} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sStoreType" className="font-bold text-slate-700">Store Type</Label>
+                    <div className="relative">
+                      <Store className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                      <Input id="sStoreType" placeholder="e.g. Retail, Wholesale" className="pl-9 rounded-xl border-slate-200/80 h-11"
+                        value={formData.storeType} onChange={(e) => setFormData({ ...formData, storeType: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sTypeService" className="font-bold text-slate-700">Type of Service</Label>
+                    <div className="relative">
+                      <CheckCircle2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 z-10" />
+                      <select id="sTypeService" className="w-full pl-9 pr-8 h-11 rounded-xl border border-slate-200/80 text-sm outline-none focus:border-[#0a5bd7] focus:ring-2 focus:ring-[#0a5bd7]/15 bg-transparent appearance-none"
+                        value={formData.typeService} onChange={(e) => setFormData({ ...formData, typeService: e.target.value })}>
+                        <option value="" disabled>Select Type</option>
+                        {['Delivery', 'Dine-in', 'Takeaway', 'Installation', 'Repair', 'Consulting', 'Retail', 'Online', 'Offline', 'Other'].map(type => (
+                          <option key={type} value={type}>{type}</option>
+                        ))}
+                      </select>
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="sSalesProduct" className="font-bold text-slate-700">Sales & Product Info</Label>
+                  <div className="relative">
+                    <ShoppingCart className="absolute left-3 top-3 text-slate-400 w-4 h-4" />
+                    <Input id="sSalesProduct" placeholder="e.g. Groceries, Electronics..." className="pl-9 rounded-xl border-slate-200/80 h-11"
+                      value={formData.salesAndProduct} onChange={(e) => setFormData({ ...formData, salesAndProduct: e.target.value })} />
                   </div>
                 </div>
 
@@ -228,9 +287,9 @@ export default function RegisterSocietyPage() {
                   </div>
                 </div>
 
-                <Button onClick={() => setStep(2)} disabled={!formData.name || !formData.address}
+                <Button onClick={() => setStep(2)} disabled={!formData.name || !formData.address || !formData.contactNumber}
                   className="w-full bg-[#0a5bd7] hover:bg-[#0a5bd7]/90 text-white rounded-xl h-11 font-black shadow-md mt-2">
-                  Proceed to Contact Info <ArrowRight className="w-4 h-4 ml-2" />
+                  Proceed to Admin Info <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </CardContent>
             </Card>
@@ -239,33 +298,25 @@ export default function RegisterSocietyPage() {
           {step === 2 && (
             <Card className="shadow-xl border border-slate-200/80">
               <CardHeader>
-                <CardTitle className="text-2xl font-black text-slate-800">Admin Contact</CardTitle>
-                <CardDescription>The primary admin who will manage this society once approved.</CardDescription>
+                <CardTitle className="text-2xl font-black text-slate-800">Admin Account</CardTitle>
+                <CardDescription>Setup the primary admin account for your shop.</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-5">
                   <div className="space-y-1.5">
-                    <Label htmlFor="admName" className="font-bold text-slate-700">Administrator Full Name</Label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                      <Input id="admName" required placeholder="e.g. Johnathan Doe" className="pl-9 rounded-xl border-slate-200/80 h-11"
-                        value={formData.contactName} onChange={(e) => setFormData({ ...formData, contactName: e.target.value })} />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
                     <Label htmlFor="admEmail" className="font-bold text-slate-700">Official Email</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                      <Input id="admEmail" required type="email" placeholder="admin@societydomain.com" className="pl-9 rounded-xl border-slate-200/80 h-11"
-                        value={formData.contactEmail} onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })} />
+                      <Input id="admEmail" required type="email" placeholder="admin@shopdomain.com" className="pl-9 rounded-xl border-slate-200/80 h-11"
+                        value={formData.adminEmail} onChange={(e) => setFormData({ ...formData, adminEmail: e.target.value })} />
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="admPhone" className="font-bold text-slate-700">Phone <span className="text-slate-400 font-normal">(optional)</span></Label>
+                    <Label htmlFor="admPassword" className="font-bold text-slate-700">Password</Label>
                     <div className="relative">
-                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                      <Input id="admPhone" placeholder="+91 ..." className="pl-9 rounded-xl border-slate-200/80 h-11"
-                        value={formData.contactPhone} onChange={(e) => setFormData({ ...formData, contactPhone: e.target.value })} />
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                      <Input id="admPassword" type="password" required placeholder="Create a secure password" className="pl-9 rounded-xl border-slate-200/80 h-11"
+                        value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
                     </div>
                   </div>
 
@@ -297,9 +348,9 @@ export default function RegisterSocietyPage() {
                   <p className="text-slate-500 text-sm max-w-sm mx-auto font-medium"><strong>{formData.name}</strong> is registered. Our team will verify your details shortly.</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-left text-xs text-slate-600 space-y-1">
-                  <p>• A confirmation email was sent to <strong>{formData.contactEmail}</strong>.</p>
+                  <p>• A confirmation email was sent to <strong>{formData.adminEmail}</strong>.</p>
                   <p>• A free trial starts automatically on approval.</p>
-                  <p>• Login credentials are emailed once approved.</p>
+                  <p>• Login using your email and password once approved.</p>
                 </div>
                 <Button onClick={() => (window.location.href = '/login')} className="w-full bg-black hover:bg-slate-800 text-white rounded-xl h-11 font-bold">Return to Portal Login</Button>
               </CardContent>

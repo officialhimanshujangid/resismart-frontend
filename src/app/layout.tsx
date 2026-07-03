@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ResiSmart - Society & Shop Management Platform",
+  title: "Resismart - Society & Shop Management Platform",
   description: "Secure, multi-tenant digital management portal for residential societies, commercial shops, and committee admin actions.",
 };
 

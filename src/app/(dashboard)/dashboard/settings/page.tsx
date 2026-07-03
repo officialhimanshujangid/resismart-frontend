@@ -83,10 +83,10 @@ export default function SettingsPage() {
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="text-2xl font-black text-white tracking-tight">Society Settings</h1>
-              <ModuleScope scope="society" />
+              <h1 className="text-2xl font-black text-white tracking-tight">System Settings</h1>
+              <ModuleScope scope="system" />
             </div>
-            <p className="text-sm text-blue-100 mt-1">Free-tier limits, grace period and automated reminders</p>
+            <p className="text-sm text-blue-100 mt-1">Free-tier limits, grace period and automated reminders for tenants</p>
           </div>
           <Button onClick={handleSave} disabled={saving} variant="contained"
             startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <Save className="w-4 h-4" />}

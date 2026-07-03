@@ -8,14 +8,14 @@ import { Button } from '../../../components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
-import { 
-  Rocket, 
-  Mail, 
-  Lock, 
-  User, 
-  Eye, 
-  EyeOff, 
-  Check 
+import {
+  Rocket,
+  Mail,
+  Lock,
+  User,
+  Eye,
+  EyeOff,
+  Check
 } from 'lucide-react';
 
 export default function RegisterPage() {
@@ -70,10 +70,10 @@ export default function RegisterPage() {
     <div className="min-h-screen bg-slate-200/70 flex items-center justify-center p-4 md:p-8">
       {/* Container Card */}
       <div className="w-full max-w-5xl bg-white rounded-[32px] shadow-2xl overflow-hidden flex flex-col lg:flex-row relative min-h-[580px] lg:h-[620px] border border-white/60">
-        
+
         {/* LEFT PANEL: Branding & Visuals (Desktop & Mobile header) */}
         <div className="w-full lg:w-[42%] bg-gradient-to-b from-[#0a5bd7] to-[#2691f5] p-8 lg:p-12 flex flex-col justify-between text-white relative min-h-[260px] lg:min-h-full">
-          
+
           {/* Subtle radial overlay */}
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.08),transparent_60%)] pointer-events-none" />
 
@@ -90,7 +90,7 @@ export default function RegisterPage() {
             </div>
             {/* Brand Title */}
             <h1 className="text-3xl lg:text-4xl font-extrabold tracking-tight mt-4 text-white">
-              ResiSmart
+              Resismart
             </h1>
             {/* Tagline */}
             <p className="text-white/70 text-xs lg:text-sm text-center max-w-xs mt-3 leading-relaxed hidden lg:block">
@@ -151,7 +151,7 @@ export default function RegisterPage() {
 
         {/* RIGHT PANEL: Form Inputs (Desktop & Mobile bottom) */}
         <div className="flex-1 p-8 md:p-12 lg:p-16 flex flex-col justify-center bg-white relative z-0">
-          
+
           <div className="w-full max-w-md mx-auto space-y-6">
             {/* Header Title */}
             <div className="space-y-1">
@@ -233,7 +233,7 @@ export default function RegisterPage() {
                     className="border-t-0 border-l-0 border-r-0 border-b border-slate-200 rounded-none bg-transparent px-0 pr-8 pb-2 focus:border-[#0a5bd7] focus:ring-0 focus-visible:ring-0 focus:bg-transparent shadow-none text-slate-800 placeholder:text-slate-400 text-sm w-full"
                     disabled={isSubmitting || success}
                   />
-                  
+
                   {/* Status checkbox and eye toggle */}
                   <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center space-x-2">
                     {password.length >= 6 && (

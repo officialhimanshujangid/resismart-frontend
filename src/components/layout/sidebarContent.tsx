@@ -4,7 +4,8 @@ import {
   Settings,
   Building,
   DollarSign,
-  UsersRound
+  UsersRound,
+  Store
 } from 'lucide-react';
 
 export interface SidebarLink {
@@ -56,26 +57,50 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
           { label: 'Pending Approvals', href: '/owner/societies', moduleKey: 'societies_pending', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
           { label: 'Trial Societies', href: '/dashboard/societies?life=trial', moduleKey: 'societies_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
           { label: 'Subscribed', href: '/dashboard/societies?life=subscribed', moduleKey: 'societies_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
-          { label: 'Expired Plans', href: '/dashboard/societies?life=expired', moduleKey: 'societies_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] }
+          { label: 'Expired Plans', href: '/dashboard/societies?life=expired', moduleKey: 'societies_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { 
+            label: 'Society Billing', 
+            moduleKey: 'billing',
+            permittedUserType: ['SYSTEM_OWNER'],
+            children: [
+              { label: 'Plans & Pricing', href: '/owner/plans?scope=society', moduleKey: 'billing_plans', permittedUserType: ['SYSTEM_OWNER'] },
+              { label: 'Subscriptions', href: '/owner/subscriptions?scope=society', moduleKey: 'billing_subscriptions', permittedUserType: ['SYSTEM_OWNER'] },
+            ]
+          },
+          { label: 'Society Settings', href: '/dashboard/settings?scope=society', moduleKey: 'settings_general', permittedUserType: ['SYSTEM_OWNER'] },
         ]
       },
       {
-        label: 'Society Billing',
-        icon: <DollarSign className="w-5 h-5" />,
-        moduleKey: 'billing',
-        permittedUserType: ['SYSTEM_OWNER'],
+        label: 'Shops',
+        icon: <Store className="w-5 h-5" />,
+        moduleKey: 'shops',
+        permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'],
         children: [
-          { label: 'Plans & Pricing', href: '/owner/plans', moduleKey: 'billing_plans', permittedUserType: ['SYSTEM_OWNER'] },
-          { label: 'Subscriptions', href: '/owner/subscriptions', moduleKey: 'billing_subscriptions', permittedUserType: ['SYSTEM_OWNER'] },
-          { label: 'Invoices', href: '/owner/invoices', moduleKey: 'billing_invoices', permittedUserType: ['SYSTEM_OWNER'] },
-        ],
+          { label: 'All Shops', href: '/owner/shops', moduleKey: 'shops_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'Pending Approvals', href: '/owner/approvals/shops', moduleKey: 'shops_pending', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'Trial Shops', href: '/owner/shops?life=trial', moduleKey: 'shops_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'Subscribed', href: '/owner/shops?life=subscribed', moduleKey: 'shops_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'Expired Plans', href: '/owner/shops?life=expired', moduleKey: 'shops_manage', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { 
+            label: 'Shop Billing', 
+            moduleKey: 'billing',
+            permittedUserType: ['SYSTEM_OWNER'],
+            children: [
+              { label: 'Plans & Pricing', href: '/owner/plans?scope=shop', moduleKey: 'billing_plans', permittedUserType: ['SYSTEM_OWNER'] },
+              { label: 'Subscriptions', href: '/owner/subscriptions?scope=shop', moduleKey: 'billing_subscriptions', permittedUserType: ['SYSTEM_OWNER'] },
+            ]
+          },
+          { label: 'Shop Settings', href: '/dashboard/settings?scope=shop', moduleKey: 'settings_general', permittedUserType: ['SYSTEM_OWNER'] },
+        ]
       },
       {
-        label: 'Society Settings',
+        label: 'Global Setup',
         icon: <Settings className="w-5 h-5" />,
         moduleKey: 'settings_general',
         permittedUserType: ['SYSTEM_OWNER'],
-        href: '/dashboard/settings'
+        children: [
+          { label: 'System Invoices', href: '/owner/invoices', moduleKey: 'billing_invoices', permittedUserType: ['SYSTEM_OWNER'] },
+        ],
       },
     ];
     return rawLinks.filter(link => !link.permittedUserType || link.permittedUserType.some(r => role === r || (r === 'RESIDENT_OWNER' && role.startsWith('RESIDENT_'))));
@@ -85,6 +110,23 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
   if (role.startsWith('SOCIETY_')) {
     return [
       ...defaultLinks,
+      {
+        label: 'Billing & Subscription',
+        icon: <DollarSign className="w-5 h-5" />,
+        href: '/dashboard/billing'
+      }
+    ];
+  }
+
+  // Shop Admin Links
+  if (role.startsWith('SHOP_')) {
+    return [
+      ...defaultLinks,
+      {
+        label: 'Shop Settings',
+        icon: <Settings className="w-5 h-5" />,
+        href: '/dashboard/shop-settings'
+      },
       {
         label: 'Billing & Subscription',
         icon: <DollarSign className="w-5 h-5" />,
