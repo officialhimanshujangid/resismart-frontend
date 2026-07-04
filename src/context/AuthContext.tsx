@@ -23,6 +23,7 @@ export interface IModulePermission {
 export interface IUser {
   name: string;
   email: string;
+  profileImage?: string;
 }
 
 interface AuthContextType {
@@ -39,6 +40,7 @@ interface AuthContextType {
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   forgotPassword: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
   resetPassword: (token: string, password: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  updateCurrentUser: (userData: Partial<IUser>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -330,6 +332,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Update Current User (e.g., from Profile page)
+  const updateCurrentUser = (userData: Partial<IUser>) => {
+    if (user) {
+      const updated = { ...user, ...userData };
+      setUser(updated);
+      localStorage.setItem('user', JSON.stringify(updated));
+    }
+  };
+
   const isAuthenticated = !!user && !!activeProfile;
 
   return (
@@ -348,6 +359,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         forgotPassword,
         resetPassword,
+        updateCurrentUser,
       }}
     >
       {children}

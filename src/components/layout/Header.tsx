@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, IUserProfile } from '../../context/AuthContext';
 import { Button } from '../ui/button';
+import { useRouter } from 'next/navigation';
+import { ResiSmartLogo } from './ResiSmartLogo';
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -29,6 +31,7 @@ interface HeaderProps {
 export function Header({ setMobileOpen, setSwitching }: HeaderProps) {
   const { user, activeProfile, switchProfileContext, logout } = useAuth();
   const [otherProfiles, setOtherProfiles] = useState<IUserProfile[]>([]);
+  const router = useRouter();
 
   useEffect(() => {
     const cachedProfiles = localStorage.getItem('availableProfiles');
@@ -76,16 +79,21 @@ export function Header({ setMobileOpen, setSwitching }: HeaderProps) {
 
   return (
     <header className="h-16 bg-white/90 backdrop-blur-2xl border-b border-slate-200/60 flex items-center justify-between px-4 sm:px-6 relative z-10 sticky top-0 shadow-sm">
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center space-x-3">
         <button
           onClick={() => setMobileOpen(true)}
-          className="lg:hidden p-2 -ml-2 rounded-xl bg-white shadow-sm border border-slate-200/50 hover:bg-slate-50 transition-colors"
+          className="lg:hidden p-2 -ml-1 rounded-xl bg-white shadow-sm border border-slate-200/50 hover:bg-slate-50 transition-colors"
         >
           <Menu className="w-5 h-5 text-slate-700" />
         </button>
         
+        {/* Mobile Logo — visible only when the sidebar is collapsed on small screens */}
+        <div className="lg:hidden">
+          <ResiSmartLogo href="/dashboard" variant="compact" />
+        </div>
+        
         {activeProfile && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3">
+          <div className="hidden lg:flex flex-row items-center space-x-3">
             <span className={`text-[10px] sm:text-xs px-3 py-1.5 rounded-full border font-black uppercase tracking-wider shadow-sm ${getRoleBadgeStyle(activeProfile.role)}`}>
               {formatRoleName(activeProfile.role)}
             </span>
@@ -132,8 +140,12 @@ export function Header({ setMobileOpen, setSwitching }: HeaderProps) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center space-x-3 p-1.5 pr-4 rounded-full bg-white shadow-sm border border-slate-200/50 hover:shadow-md transition-all outline-none group">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#0a5bd7] to-[#2691f5] flex items-center justify-center font-bold text-white text-sm shadow-inner group-hover:scale-105 transition-transform">
-                  {user.name.charAt(0).toUpperCase()}
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#0a5bd7] to-[#2691f5] flex items-center justify-center font-bold text-white text-sm shadow-inner group-hover:scale-105 transition-transform overflow-hidden">
+                  {user.profileImage ? (
+                    <img src={user.profileImage} alt={user.name} className="w-full h-full object-cover" />
+                  ) : (
+                    user.name.charAt(0).toUpperCase()
+                  )}
                 </div>
                 <span className="text-sm font-bold text-slate-700 hidden md:block">{user.name}</span>
                 <ChevronDown className="w-4 h-4 text-slate-400 hidden md:block group-hover:text-slate-600 transition-colors" />
@@ -146,7 +158,7 @@ export function Header({ setMobileOpen, setSwitching }: HeaderProps) {
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="my-1 bg-slate-100" />
               
-              <DropdownMenuItem className="p-3 rounded-2xl cursor-pointer font-bold text-slate-700 focus:bg-slate-50" onClick={() => alert('Profile options coming soon!')}>
+              <DropdownMenuItem className="p-3 rounded-2xl cursor-pointer font-bold text-slate-700 focus:bg-slate-50" onClick={() => router.push('/dashboard/profile')}>
                 <User className="w-4 h-4 mr-3 text-[#0a5bd7]" />
                 My Profile
               </DropdownMenuItem>

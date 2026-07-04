@@ -84,6 +84,11 @@ export default function ShopsManager({ mode }: { mode: 'manage' | 'approvals' })
   const [searchTerm, setSearchTerm] = useState(appliedSearch);
   const [statusFilter, setStatusFilter] = useState(appliedStatus);
 
+  useEffect(() => {
+    setSearchTerm(appliedSearch);
+    setStatusFilter(appliedStatus);
+  }, [appliedSearch, appliedStatus]);
+
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Shop | null>(null);
   const [saving, setSaving] = useState(false);

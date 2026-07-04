@@ -1,24 +1,23 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "../context/AuthContext";
 import { MuiThemeProvider } from "../context/MuiThemeProvider";
 import { ToastConfirmProvider } from "../context/ToastConfirmContext";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v16-appRouter";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-mono-mono", // just matches variable name or leave standard
+const plusJakartaSans = Plus_Jakarta_Sans({
+  variable: "--font-plus-jakarta",
   subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
   title: "Resismart - Society & Shop Management Platform",
   description: "Secure, multi-tenant digital management portal for residential societies, commercial shops, and committee admin actions.",
+  icons: {
+    icon: "/favicon.svg",
+    apple: "/resismart-icon.png",
+  },
 };
 
 export default function RootLayout({
@@ -29,7 +28,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${plusJakartaSans.variable} h-full antialiased font-sans`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <AppRouterCacheProvider>

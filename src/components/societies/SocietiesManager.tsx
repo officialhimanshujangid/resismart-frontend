@@ -91,6 +91,11 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
   const [searchTerm, setSearchTerm] = useState(appliedSearch);
   const [statusFilter, setStatusFilter] = useState(appliedStatus);
 
+  useEffect(() => {
+    setSearchTerm(appliedSearch);
+    setStatusFilter(appliedStatus);
+  }, [appliedSearch, appliedStatus]);
+
   // Add / Edit
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Society | null>(null);

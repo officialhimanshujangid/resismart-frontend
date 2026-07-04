@@ -5,10 +5,11 @@ import api from '@/lib/api';
 import {
   Button, CircularProgress, Paper, Grid, Select, MenuItem, FormControl,
   TableContainer, Table, TableHead, TableBody, TableRow, TableCell, TablePagination, Chip,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import { useAuth } from '@/context/AuthContext';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
-import { CheckCircle2, Crown, Download, Sparkles, Clock, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Crown, Download, Sparkles, Clock, ShieldCheck, XCircle } from 'lucide-react';
 
 interface Plan {
   _id: string; name: string; description?: string; basePrice: number; isFeatured: boolean;
@@ -57,6 +58,11 @@ export default function BillingPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [tenureByPlan, setTenureByPlan] = useState<Record<string, string>>({});
   const [payingPlan, setPayingPlan] = useState<string | null>(null);
+  const [nextAmountPaise, setNextAmountPaise] = useState(0);
+
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [selectedPlanToUpgrade, setSelectedPlanToUpgrade] = useState<Plan | null>(null);
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invTotal, setInvTotal] = useState(0);
@@ -71,6 +77,7 @@ export default function BillingPage() {
       setCapabilities(res.data.capabilities || {});
       setPlanStatus(res.data.planStatus || null);
       setUpcoming(res.data.upcoming || []);
+      setNextAmountPaise(res.data.nextAmountPaise || 0);
     } catch {
       showToast('Failed to load subscription', 'error');
     }
@@ -115,26 +122,56 @@ export default function BillingPage() {
 
   const inr = (n: number) => `₹${Number(n).toLocaleString('en-IN')}`;
   const cap = (v: number) => (v === -1 ? 'Unlimited' : v);
-  const daysLeft = subscription?.endDate ? Math.max(0, Math.ceil((new Date(subscription.endDate).getTime() - Date.now()) / 86400000)) : 0;
+  // Time remaining includes all prepaid upcoming periods
+  const effectiveEndDate = upcoming.length > 0 ? upcoming[upcoming.length - 1].endDate : subscription?.endDate;
+  const daysLeft = effectiveEndDate ? Math.max(0, Math.ceil((new Date(effectiveEndDate).getTime() - Date.now()) / 86400000)) : 0;
   const planName = subscription?.planId?.name || (subscription?.tenure === 'trial' ? 'Free Trial' : '—');
   const formatDate = (s?: string) => (s ? new Date(s).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
   const priceFor = (p: Plan, tenure: string) => p.computedPricing?.find((c) => c.tenure === tenure);
 
-  const handleUpgrade = async (plan: Plan) => {
-    const tenure = tenureByPlan[plan._id] || 'yearly';
+  const [checkoutIntent, setCheckoutIntent] = useState<string>('upgrade');
+
+  const handleUpgradeClick = async (plan: Plan, overrideTenure?: string, intent: string = 'upgrade') => {
+    const tenure = overrideTenure || tenureByPlan[plan._id] || 'yearly';
+    
+    let finalIntent = intent;
+    const isCurrentPlan = subscription?.planId?._id === plan._id && subscription?.tenure === tenure;
+    if (isCurrentPlan && upcoming.length > 0 && finalIntent === 'upgrade') {
+      finalIntent = 'setup_autopay';
+    }
+    
+    setPayingPlan(plan._id);
+    try {
+      const res = await api.post('/billing/upgrade-preview', { planId: plan._id, tenure, intent: finalIntent });
+      setPreviewData(res.data.preview);
+      setSelectedPlanToUpgrade(plan);
+      setCheckoutIntent(finalIntent);
+      setPreviewOpen(true);
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Could not fetch upgrade details', 'error');
+    } finally {
+      setPayingPlan(null);
+    }
+  };
+
+  const confirmUpgrade = async () => {
+    if (!selectedPlanToUpgrade) return;
+    const plan = selectedPlanToUpgrade;
+    const tenure = previewData?.tenure || 'yearly';
+    
+    setPreviewOpen(false);
     setPayingPlan(plan._id);
     try {
       const ok = await loadRazorpay();
       if (!ok) { showToast('Could not load the payment gateway. Check your connection.', 'error'); return; }
 
-      const res = await api.post('/billing/checkout', { planId: plan._id, tenure });
-      const { subscriptionId, keyId, invoiceId } = res.data;
+      const res = await api.post('/billing/checkout', { planId: plan._id, tenure, intent: checkoutIntent });
+      const { subscriptionId, orderId, keyId, invoiceId } = res.data;
 
-      const rzp = new (window as any).Razorpay({
+      const rzpOptions: any = {
         key: keyId,
-        subscription_id: subscriptionId,
         name: 'Resismart',
-        description: `${plan.name} — ${tenure} (auto-renews)`,
+        description: checkoutIntent === 'manual_renewal' ? `${plan.name} — ${tenure} (One-Time Renewal)` : checkoutIntent === 'setup_autopay' ? `Auto-Pay Setup (${plan.name})` : `${plan.name} — ${tenure} (auto-renews)`,
         prefill: { name: user?.name, email: user?.email },
         theme: { color: '#0a5bd7' },
         handler: async (response: any) => {
@@ -142,10 +179,11 @@ export default function BillingPage() {
             await api.post('/billing/verify-payment', {
               invoiceId,
               razorpay_subscription_id: response.razorpay_subscription_id,
+              razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
             });
-            showToast('Subscription active — you will be auto-charged each cycle.', 'success');
+            showToast(checkoutIntent === 'manual_renewal' ? 'Payment successful — plan renewed.' : 'Subscription active — you will be auto-charged each cycle.', 'success');
             await fetchSubscription();
             await fetchInvoices();
           } catch (err: any) {
@@ -153,7 +191,12 @@ export default function BillingPage() {
           }
         },
         modal: { ondismiss: () => setPayingPlan(null) },
-      });
+      };
+
+      if (subscriptionId) rzpOptions.subscription_id = subscriptionId;
+      if (orderId) rzpOptions.order_id = orderId;
+
+      const rzp = new (window as any).Razorpay(rzpOptions);
       rzp.on('payment.failed', () => showToast('Payment failed. Please try again.', 'error'));
       rzp.open();
     } catch (err: any) {
@@ -163,20 +206,23 @@ export default function BillingPage() {
     }
   };
 
-  const handleCancel = async () => {
+  const handleCancelAutopay = async () => {
     const ok = await confirm({
-      title: 'Cancel Subscription',
-      message: 'Cancel auto-renewal? Your plan stays active until the current period ends, then it will not renew.',
-      confirmText: 'Cancel subscription', cancelText: 'Keep it', severity: 'error',
+      title: 'Turn Off Auto-Pay',
+      message: 'Are you sure you want to cancel your Auto-Pay mandate? Your current plan and any prepaid periods will remain active until they expire, but automatic renewal will stop after that.',
+      confirmText: 'Turn Off Auto-Pay',
+      cancelText: 'Keep Auto-Pay',
+      severity: 'error',
     });
     if (!ok) return;
     setCancelling(true);
     try {
       await api.post('/billing/cancel');
-      showToast('Subscription cancelled. Auto-renewal is off.', 'success');
+      showToast('Auto-Pay has been turned off. Your plan remains active until it expires.', 'success');
       await fetchSubscription();
+      await fetchInvoices();
     } catch (err: any) {
-      showToast(err.response?.data?.message || 'Failed to cancel', 'error');
+      showToast(err.response?.data?.message || 'Failed to cancel Auto-Pay', 'error');
     } finally {
       setCancelling(false);
     }
@@ -187,6 +233,33 @@ export default function BillingPage() {
     active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     past_due: 'bg-red-50 text-red-700 border-red-200',
   };
+
+  // Auto-pay detection: check both active subscription AND any upcoming scheduled plan
+  const hasAutoPay = !!subscription?.razorpaySubscriptionId || upcoming.some((u: any) => !!u.razorpaySubscriptionId);
+  
+  // The date when AUTO-PAY will next charge — this is when the last prepaid period ends
+  const autoPayChargeDate = (() => {
+    if (!hasAutoPay) return undefined;
+    // If there are upcoming scheduled plans with autopay, charge happens after the LAST scheduled one ends
+    const upcomingWithAutopay = upcoming.filter((u: any) => !!u.razorpaySubscriptionId);
+    if (upcomingWithAutopay.length > 0) return upcomingWithAutopay[upcomingWithAutopay.length - 1].endDate;
+    // If autopay is on the active sub, it charges when the active sub ends (or after last upcoming)
+    if (upcoming.length > 0) return upcoming[upcoming.length - 1].endDate;
+    return subscription?.endDate;
+  })();
+
+  // "Next Billing Date" = when is the next payment due?
+  // - If autopay is on: it's the autoPayChargeDate
+  // - If no autopay but has upcoming prepaid: the last prepaid end date (that's when they need to pay next)
+  // - Otherwise: the active subscription end date
+  // - Free tier: Never
+  const nextBillingDate = planStatus?.isFreeTier 
+    ? 'Never' 
+    : hasAutoPay 
+      ? formatDate(autoPayChargeDate) 
+      : upcoming.length > 0 
+        ? formatDate(upcoming[upcoming.length - 1].endDate) 
+        : formatDate(subscription?.endDate);
 
   if (loading) return <div className="flex items-center justify-center py-32"><CircularProgress size={34} thickness={4} /></div>;
 
@@ -209,49 +282,159 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Current subscription */}
-      <Paper elevation={0} className="p-6 rounded-2xl border border-slate-200/60">
-        <Grid container spacing={3} sx={{ alignItems: 'center' }}>
-          <Grid size={{ xs: 12, md: 5 }}>
-            <div className="flex items-center gap-2 mb-1">
-              <Crown className="w-5 h-5 text-[#0a5bd7]" />
-              <span className="text-lg font-black text-slate-800">{planStatus?.planName || planName}</span>
-              {planStatus && <span className={`text-[10px] uppercase px-2 py-0.5 rounded-full font-black border ${planStatus.isFreeTier ? 'bg-slate-100 text-slate-600 border-slate-200' : statusColor[planStatus.status] || 'bg-slate-100 text-slate-500 border-slate-200'}`}>{planStatus.isFreeTier ? 'Free Tier' : planStatus.status === 'past_due' ? 'Grace' : planStatus.status}</span>}
+      {/* Current subscription Hero Card */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 to-slate-800 p-8 shadow-xl text-white">
+        {/* Background decorative elements */}
+        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-blue-500/20 blur-3xl mix-blend-screen pointer-events-none" />
+        <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-48 h-48 rounded-full bg-indigo-500/20 blur-3xl mix-blend-screen pointer-events-none" />
+        
+        <div className="relative z-10 flex flex-col md:flex-row gap-8 justify-between items-start md:items-center">
+          <div className="space-y-4 flex-1">
+            <div className="flex items-center gap-3">
+              <div className="bg-white/10 p-2.5 rounded-xl border border-white/10 shadow-inner">
+                <Crown className="w-6 h-6 text-blue-400" />
+              </div>
+              <div>
+                <div className="text-blue-200 text-sm font-bold uppercase tracking-widest mb-0.5">Your Active Plan</div>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-3xl font-black tracking-tight">{planStatus?.planName || planName}</h2>
+                  {planStatus && (
+                    <span className={`text-xs uppercase px-2.5 py-1 rounded-full font-black tracking-wide border shadow-sm ${
+                      planStatus.isFreeTier ? 'bg-white/10 text-white border-white/20' :
+                      planStatus.status === 'past_due' ? 'bg-red-500/20 text-red-300 border-red-500/30' :
+                      'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    }`}>
+                      {planStatus.isFreeTier ? 'Free Tier' : planStatus.status === 'past_due' ? 'Grace Period' : 'Active'}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
-            <p className="text-sm text-slate-500">{subscription ? `${subscription.tenure} billing` : 'No active subscription'}</p>
-            {subscription?.status === 'active' && subscription?.razorpaySubscriptionId && (
-              <Button onClick={handleCancel} disabled={cancelling} size="small" color="error" variant="text" className="mt-1 font-bold normal-case px-0">
-                {cancelling ? <CircularProgress size={14} color="inherit" /> : 'Cancel auto-renewal'}
-              </Button>
+            
+            <p className="text-slate-300 font-medium">
+              {subscription ? `You are on a ${subscription.tenure} billing cycle.` : 'No active subscription found.'}
+            </p>
+            
+            {hasAutoPay && (
+              <div className="inline-flex items-center gap-2 mt-2">
+                <span className="flex h-2.5 w-2.5 rounded-full bg-blue-400 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                </span>
+                <span className="text-sm font-bold text-blue-300">Auto-Pay is Active</span>
+                <button onClick={handleCancelAutopay} disabled={cancelling} className="ml-4 text-xs font-bold text-slate-400 hover:text-white transition-colors underline decoration-slate-600 hover:decoration-white underline-offset-4">
+                  {cancelling ? 'Cancelling...' : 'Turn off auto-renewal'}
+                </button>
+              </div>
             )}
-          </Grid>
-          <Grid size={{ xs: 6, md: 3 }}>
-            <div className="flex items-center gap-2 text-slate-500 text-xs font-bold uppercase mb-1"><Clock className="w-3.5 h-3.5" /> Renews / Ends</div>
-            <div className="font-bold text-slate-800">{planStatus?.isFreeTier ? 'No expiry' : formatDate(subscription?.endDate)}</div>
-          </Grid>
-          <Grid size={{ xs: 6, md: 4 }}>
-            <div className="flex items-center gap-2 text-slate-500 text-xs font-bold uppercase mb-1"><Sparkles className="w-3.5 h-3.5" /> Time Remaining</div>
-            <div className="font-bold text-slate-800">{planStatus?.isFreeTier ? '∞' : `${daysLeft} days`}</div>
-          </Grid>
-        </Grid>
-
+          </div>
+          
+          <div className="flex flex-row md:flex-col gap-6 md:gap-4 w-full md:w-auto bg-black/20 p-5 rounded-2xl border border-white/5 backdrop-blur-md">
+            <div>
+              <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> Next Billing Date</div>
+              <div className="text-xl font-black text-white">{nextBillingDate}</div>
+            </div>
+            {subscription && !planStatus?.isFreeTier && (
+              <>
+                <div className="hidden md:block w-full h-px bg-white/10"></div>
+                <div>
+                  <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Time Remaining</div>
+                  <div className="text-xl font-black text-white">{daysLeft} day{daysLeft !== 1 ? 's' : ''}</div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+        {/* Explicit Auto-Pay Message */}
+        {subscription && !planStatus?.isFreeTier && (() => {
+          if (hasAutoPay) {
+            return (
+              <div className="mt-6 pt-5 border-t border-slate-700">
+                <div className="flex items-start justify-between gap-3 bg-blue-500/10 p-4 rounded-xl border border-blue-500/20">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-blue-100">Auto-Pay is ON</h4>
+                      <p className="text-sm text-blue-200/80 mt-1">{inr(nextAmountPaise / 100)} will be deducted automatically on {formatDate(autoPayChargeDate)}.</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <Button variant="outlined" size="small" onClick={handleCancelAutopay} disabled={cancelling} sx={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444', '&:hover': { borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)' } }} className="font-bold w-full text-xs">{cancelling ? 'Cancelling...' : 'Turn Off Auto-Pay'}</Button>
+                  </div>
+                </div>
+              </div>
+            );
+          } else if (upcoming.length > 0) {
+            return (
+              <div className="mt-6 pt-5 border-t border-slate-700">
+                <div className="flex items-start justify-between gap-3 bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-emerald-100">Paid in Advance</h4>
+                      <p className="text-sm text-emerald-200/80 mt-1">You have upcoming scheduled plans. You are fully paid until {formatDate(upcoming[upcoming.length - 1].endDate)}.</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <Button variant="outlined" size="small" onClick={() => {
+                      const plan = plans.find(p => p._id === subscription.planId?._id);
+                      if (plan) handleUpgradeClick(plan, subscription.tenure, 'setup_autopay');
+                    }} sx={{ borderColor: 'rgba(16, 185, 129, 0.4)', color: '#34d399', '&:hover': { borderColor: '#34d399', backgroundColor: 'rgba(16, 185, 129, 0.1)' } }} className="font-bold w-full text-xs">Turn On Auto-Pay</Button>
+                  </div>
+                </div>
+              </div>
+            );
+          } else {
+            return (
+              <div className="mt-6 pt-5 border-t border-slate-700">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 bg-amber-500/10 p-4 rounded-xl border border-amber-500/20">
+                <div className="flex items-start gap-3">
+                  <XCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-100">Auto-Pay is OFF</h4>
+                    <p className="text-sm text-amber-200/80 mt-1">Manual payment of {inr(nextAmountPaise / 100)} is required before {formatDate(subscription.endDate)} to continue your plan.</p>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 shrink-0">
+                  <Button variant="contained" size="small" onClick={() => {
+                    const plan = plans.find(p => p._id === subscription.planId?._id);
+                    if (plan) handleUpgradeClick(plan, subscription.tenure, 'manual_renewal');
+                    else {
+                      const fakePlan = { _id: subscription.planId?._id, name: subscription.planId?.name, basePrice: 0, isFeatured: false, capabilities: {} };
+                      handleUpgradeClick(fakePlan as any, subscription.tenure, 'manual_renewal');
+                    }
+                  }} className="bg-amber-500 text-slate-900 hover:bg-amber-400 shadow-none font-bold w-full">Pay Manual Renewal</Button>
+                  
+                  <Button variant="outlined" size="small" onClick={() => {
+                    const plan = plans.find(p => p._id === subscription.planId?._id);
+                    if (plan) handleUpgradeClick(plan, subscription.tenure, 'setup_autopay');
+                    else {
+                      const fakePlan = { _id: subscription.planId?._id, name: subscription.planId?.name, basePrice: 0, isFeatured: false, capabilities: {} };
+                      handleUpgradeClick(fakePlan as any, subscription.tenure, 'setup_autopay');
+                    }
+                  }} sx={{ borderColor: 'rgba(251, 191, 36, 0.4)', color: '#fcd34d', '&:hover': { borderColor: '#fcd34d', backgroundColor: 'rgba(251, 191, 36, 0.1)' } }} className="font-bold w-full text-xs">Turn On Auto-Pay</Button>
+                </div>
+              </div>
+              </div>
+            );
+          }
+        })()}
         {/* Plan limits */}
         {Object.keys(capabilities).length > 0 && (
-          <div className="mt-5 pt-5 border-t border-slate-100">
-            <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-slate-500 mb-3"><ShieldCheck className="w-3.5 h-3.5" /> Your Plan Limits</div>
+          <div className="mt-6 pt-6 border-t border-slate-700">
+            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-400 mb-4"><ShieldCheck className="w-4 h-4" /> Your Current Capacity Limits</div>
             <Grid container spacing={2}>
               {Object.entries(CAP_LABELS).map(([key, label]) => (
                 <Grid size={{ xs: 6, sm: 4, md: 2 }} key={key}>
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
-                    <div className="text-lg font-black text-slate-800">{cap(capabilities[key] ?? 0)}</div>
-                    <div className="text-[10px] font-bold uppercase text-slate-400">{label}</div>
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center hover:bg-white/10 transition-colors">
+                    <div className="text-xl font-black text-white">{cap(capabilities[key] ?? 0)}</div>
+                    <div className="text-[10px] font-bold uppercase text-slate-400 mt-1">{label}</div>
                   </div>
                 </Grid>
               ))}
             </Grid>
           </div>
         )}
-      </Paper>
+      </div>
 
       {/* Upcoming (scheduled) plans */}
       {upcoming.length > 0 && (
@@ -300,10 +483,37 @@ export default function BillingPage() {
                         <li key={key} className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> <span className="font-bold text-slate-800">{cap(p.capabilities?.[key] ?? 0)}</span> {label}</li>
                       ))}
                     </ul>
-                    <Button variant={p.isFeatured ? 'contained' : 'outlined'} fullWidth disabled={payingPlan === p._id}
-                      onClick={() => handleUpgrade(p)} className="font-bold py-2.5">
-                      {payingPlan === p._id ? <CircularProgress size={20} color="inherit" /> : 'Subscribe & Pay'}
-                    </Button>
+                    {(() => {
+                      const isCurrentPlan = subscription?.planId?._id === p._id && subscription?.tenure === tenure;
+                      const isProcessing = payingPlan === p._id;
+
+                      if (isCurrentPlan && hasAutoPay) {
+                        return (
+                          <Button variant="outlined" fullWidth disabled className="font-bold py-2.5 border-emerald-200 text-emerald-700 bg-emerald-50 opacity-100">
+                            Current Plan (Auto-Renews)
+                          </Button>
+                        );
+                      }
+
+                      // Determine button label
+                      let buttonLabel = 'Subscribe & Pay';
+                      if (isCurrentPlan) {
+                        buttonLabel = upcoming.length > 0 ? 'Setup Auto-Pay' : 'Renew Plan';
+                      }
+
+                      return (
+                        <Button variant={p.isFeatured ? 'contained' : 'outlined'} fullWidth disabled={isProcessing}
+                          onClick={() => {
+                            if (isCurrentPlan && upcoming.length > 0) {
+                              handleUpgradeClick(p, undefined, 'setup_autopay');
+                            } else {
+                              handleUpgradeClick(p);
+                            }
+                          }} className="font-bold py-2.5">
+                          {isProcessing ? <CircularProgress size={20} color="inherit" /> : buttonLabel}
+                        </Button>
+                      );
+                    })()}
                   </div>
                 </div>
               </Grid>
@@ -364,6 +574,66 @@ export default function BillingPage() {
             rowsPerPageOptions={[5, 10, 25, 50]} sx={{ borderTop: '1px solid #f1f5f9', backgroundColor: '#fff' }} />
         </TableContainer>
       </div>
+
+      {/* Upgrade Preview Modal */}
+      <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} maxWidth="sm" fullWidth sx={{ '& .MuiDialog-paper': { borderRadius: '16px' } }}>
+        <DialogTitle sx={{ pb: 1, pt: 3, px: 3 }}>
+          <div className="flex items-center gap-2 text-xl font-black text-slate-800">
+            <Sparkles className="w-5 h-5 text-[#0a5bd7]" /> 
+            {checkoutIntent === 'setup_autopay' ? 'Setup Auto-Pay' : checkoutIntent === 'manual_renewal' ? 'Manual Renewal' : previewData?.mode === 'scheduled' ? 'Renew Plan' : 'Confirm Plan Change'}
+          </div>
+        </DialogTitle>
+        <DialogContent sx={{ px: 3, pb: 1 }}>
+          {previewData && (
+            <div className="space-y-4 pt-2">
+              <p className="text-sm text-slate-600 font-medium">
+                {checkoutIntent === 'setup_autopay' 
+                  ? 'You are setting up an auto-pay mandate for your upcoming cycle. No charges will be made today.' 
+                  : checkoutIntent === 'manual_renewal' 
+                  ? 'You are manually paying for your upcoming billing cycle.' 
+                  : previewData.mode === 'scheduled' 
+                  ? 'Your current plan will be extended. The new term will start automatically when your current term ends.' 
+                  : 'You are changing your plan. Please review the details below before proceeding to checkout.'}
+              </p>
+              
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm text-slate-500 font-bold">New Plan</span>
+                  <span className="text-sm font-black text-slate-800">{previewData.newPlanName} ({previewData.tenure})</span>
+                </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm text-slate-500 font-bold">Plan Price</span>
+                  <span className="text-sm font-black text-slate-800">{inr(previewData.newPricePaise / 100)}</span>
+                </div>
+                
+                {previewData.creditPaise > 0 && (
+                  <>
+                    <div className="my-3 border-t border-slate-200 border-dashed"></div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm text-emerald-600 font-bold">Unused Credit from Current Plan</span>
+                      <span className="text-sm font-black text-emerald-600">+{inr(previewData.creditPaise / 100)}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-medium max-w-[90%] leading-tight">
+                      Since online payments charge the full plan price immediately, your unused credit will be converted into <b>{previewData.bonusDays} bonus days</b> added to your new subscription.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="bg-blue-50/50 rounded-xl p-4 border border-[#0a5bd7]/20 flex justify-between items-center">
+                <span className="font-black text-[#0a5bd7]">{checkoutIntent === 'setup_autopay' ? 'Amount Due Today' : 'Amount Due Today'}</span>
+                <span className="text-xl font-black text-[#0a5bd7]">{inr((previewData.amountDuePaise || 0) / 100)}</span>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3, pt: 2 }}>
+          <Button onClick={() => setPreviewOpen(false)} color="inherit" className="font-bold">Cancel</Button>
+          <Button onClick={confirmUpgrade} variant="contained" disableElevation className="font-bold bg-[#0a5bd7] px-6">
+            {checkoutIntent === 'setup_autopay' ? 'Confirm Setup' : 'Confirm & Pay'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 }

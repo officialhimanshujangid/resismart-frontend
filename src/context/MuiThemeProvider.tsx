@@ -29,7 +29,7 @@ const theme = createTheme({
   },
   typography: {
     fontFamily: [
-      'Outfit',
+      '"Plus Jakarta Sans"',
       'Inter',
       '-apple-system',
       'BlinkMacSystemFont',

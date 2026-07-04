@@ -40,6 +40,8 @@ export default function SocietyDetailsPage() {
   const [planStatus, setPlanStatus] = useState<any>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
+  const [nextAmountPaise, setNextAmountPaise] = useState(0);
+  const [renewalLink, setRenewalLink] = useState<{ url: string; generating: boolean }>({ url: '', generating: false });
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -62,6 +64,7 @@ export default function SocietyDetailsPage() {
       setSubscription(detail.data.subscription);
       setUpcoming(detail.data.upcoming || []);
       setPlanStatus(detail.data.planStatus || null);
+      setNextAmountPaise(detail.data.nextAmountPaise || 0);
       setInvoices(inv);
     } catch {
       showToast('Failed to load society', 'error');
@@ -144,6 +147,19 @@ export default function SocietyDetailsPage() {
       }
     } catch (e2: any) { showToast(e2.response?.data?.message || 'Failed to assign plan', 'error'); }
     finally { setBusy(false); }
+  };
+
+  const generateLink = async () => {
+    setRenewalLink({ url: '', generating: true });
+    try {
+      const res = await api.post('/billing/generate-renewal-link', { societyId: id });
+      setRenewalLink({ url: res.data.paymentLinkUrl, generating: false });
+      showToast('Renewal link generated!', 'success');
+      load();
+    } catch (e: any) {
+      setRenewalLink({ url: '', generating: false });
+      showToast(e.response?.data?.message || 'Failed to generate link', 'error');
+    }
   };
 
   // Poll the online invoice until it is paid (webhook or Razorpay fallback).
@@ -283,7 +299,40 @@ export default function SocietyDetailsPage() {
                   {planStatus?.isFreeTier ? (
                     <div className="flex items-center justify-between"><span className="text-slate-500">Expiry</span><span className="font-semibold text-slate-700">No expiry</span></div>
                   ) : (
-                    <div className="flex items-center justify-between"><span className="text-slate-500">Ends / Renews</span><span className="font-semibold text-slate-700">{fmtDate(subscription.endDate)}</span></div>
+                    <>
+                      <div className="flex items-center justify-between"><span className="text-slate-500">Ends / Renews</span><span className="font-semibold text-slate-700">{fmtDate(subscription.endDate)}</span></div>
+                      <div className="flex flex-col gap-2 pt-2 mt-2 border-t border-slate-100">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500 text-xs">Last Billed</span>
+                          <span className="font-medium text-slate-700 text-xs">{fmtDate(subscription.startDate)}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500 text-xs">Next Amount Due</span>
+                          <span className="font-medium text-slate-700 text-xs">{inr(nextAmountPaise / 100)}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500 text-xs">Auto-Pay</span>
+                          <span className={`text-[10px] uppercase px-2 py-0.5 rounded-full font-black border ${subscription.razorpaySubscriptionId ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                            {subscription.razorpaySubscriptionId ? 'ON' : 'OFF'}
+                          </span>
+                        </div>
+                        {!subscription.razorpaySubscriptionId && (
+                           <div className="mt-3 bg-blue-50/50 p-3 rounded-lg border border-blue-100 text-center space-y-2">
+                             <p className="text-[11px] text-blue-700">Auto-pay is OFF. {inr(nextAmountPaise / 100)} payment will be required by {fmtDate(subscription.endDate)}.</p>
+                             {renewalLink.url ? (
+                               <div className="flex items-center gap-2 bg-white rounded-md p-1 border border-blue-200 shadow-sm">
+                                 <input readOnly value={renewalLink.url} className="text-[10px] text-slate-600 flex-1 outline-none px-2 bg-transparent" />
+                                 <Button size="small" variant="contained" onClick={() => { navigator.clipboard.writeText(renewalLink.url); showToast('Link copied!', 'success'); }} className="h-6 min-w-0 px-2 text-[10px] shadow-none">Copy</Button>
+                               </div>
+                             ) : (
+                               <Button disabled={renewalLink.generating} onClick={generateLink} variant="outlined" size="small" className="text-[11px] h-7 px-3 border-blue-200 hover:border-blue-300 text-[#0a5bd7] bg-white">
+                                 {renewalLink.generating ? 'Generating...' : 'Generate Renewal Link'}
+                               </Button>
+                             )}
+                           </div>
+                        )}
+                      </div>
+                    </>
                   )}
                   {planStatus?.status === 'past_due' && planStatus?.graceEndsAt && (
                     <p className="text-[11px] text-amber-600 pt-1">In grace period — full access until {fmtDate(planStatus.graceEndsAt)}, then drops to Free tier if unpaid.</p>
