@@ -111,6 +111,16 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
     return [
       ...defaultLinks,
       {
+        label: 'Blocks',
+        icon: <Building className="w-5 h-5" />,
+        href: '/dashboard/blocks'
+      },
+      {
+        label: 'Flats',
+        icon: <Building className="w-5 h-5" />,
+        href: '/dashboard/flats'
+      },
+      {
         label: 'Billing & Subscription',
         icon: <DollarSign className="w-5 h-5" />,
         href: '/dashboard/billing'
