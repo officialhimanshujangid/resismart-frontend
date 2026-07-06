@@ -5,12 +5,12 @@ import api from '@/lib/api';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 import { DataTable, ColumnDef } from '@/components/common/DataTable';
 import {
-  Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions,
-  IconButton, CircularProgress, Tooltip, MenuItem, Select, FormControl, InputLabel, Chip,
-  Grid
+  Button, TextField, IconButton, Tooltip, Chip
 } from '@mui/material';
 import { Plus, Edit2, Trash2, Upload, Download } from 'lucide-react';
 import ModuleScope from '@/components/common/ModuleScope';
+import { useRouter } from 'next/navigation';
+import BulkUploadResultModal, { BulkUploadSummary, BulkUploadResultRow } from '@/components/societies/BulkUploadResultModal';
 
 interface Flat {
   _id: string;
@@ -19,7 +19,7 @@ interface Flat {
   blockId: { _id: string; name: string } | string;
   status: string;
   ownerUserId?: { _id: string; name: string; email: string; phone?: string };
-  plotNumber?: string;
+  size?: { _id: string; name: string };
   fullAddress?: string;
 }
 
@@ -28,24 +28,28 @@ interface Block {
   name: string;
 }
 
+interface FlatSize {
+  _id: string;
+  name: string;
+  details?: string;
+}
+
 export default function FlatsPage() {
+  const router = useRouter();
   const { showToast, confirm } = useToastConfirm();
   const [flats, setFlats] = useState<Flat[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const [flatSizes, setFlatSizes] = useState<FlatSize[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [pagination, setPagination] = useState({ page: 0, pageSize: 10, total: 0 });
   const [search, setSearch] = useState('');
-
-  const [openModal, setOpenModal] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({
-    number: '', blockId: '', plotNumber: '', fullAddress: '',
-    ownerName: '', ownerEmail: '', ownerPhone: ''
-  });
-  const [submitting, setSubmitting] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [modalOpen, setModalOpen] = useState(false);
+  const [uploadSummary, setUploadSummary] = useState<BulkUploadSummary | null>(null);
+  const [uploadResults, setUploadResults] = useState<BulkUploadResultRow[]>([]);
 
   const fetchBlocks = async () => {
     try {
@@ -53,6 +57,15 @@ export default function FlatsPage() {
       setBlocks(res.data.blocks);
     } catch (err: any) {
       showToast('Failed to load blocks', 'error');
+    }
+  };
+
+  const fetchFlatSizes = async () => {
+    try {
+      const res = await api.get('/flat-sizes');
+      setFlatSizes(res.data.flatSizes);
+    } catch (err: any) {
+      console.warn('Failed to load flat sizes', err);
     }
   };
 
@@ -78,6 +91,7 @@ export default function FlatsPage() {
 
   useEffect(() => {
     fetchBlocks();
+    fetchFlatSizes();
   }, []);
 
   useEffect(() => {
@@ -87,63 +101,9 @@ export default function FlatsPage() {
 
   const handleOpen = (flat?: Flat) => {
     if (flat) {
-      setEditingId(flat._id);
-      const blockId = typeof flat.blockId === 'object' && flat.blockId !== null ? flat.blockId._id : flat.blockId;
-      setFormData({
-        number: flat.number,
-        blockId: blockId || '',
-        plotNumber: flat.plotNumber || '',
-        fullAddress: flat.fullAddress || '',
-        ownerName: flat.ownerUserId?.name || '',
-        ownerEmail: flat.ownerUserId?.email || '',
-        ownerPhone: flat.ownerUserId?.phone || ''
-      });
+      router.push(`/dashboard/flats/${flat._id}/edit`);
     } else {
-      setEditingId(null);
-      setFormData({ number: '', blockId: blocks[0]?._id || '', plotNumber: '', fullAddress: '', ownerName: '', ownerEmail: '', ownerPhone: '' });
-    }
-    setOpenModal(true);
-  };
-
-  const handleClose = () => {
-    setOpenModal(false);
-  };
-
-  const handleSubmit = async () => {
-    if (!formData.number.trim() || !formData.blockId) {
-      showToast('Flat number and block are required', 'error');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      if (editingId) {
-        // Update (Owner details are generally immutable from flat update endpoint, handled via residents)
-        const block = blocks.find(b => b._id === formData.blockId);
-        await api.put(`/societies/flats/${editingId}`, {
-          plotNumber: formData.plotNumber,
-          fullAddress: formData.fullAddress
-        });
-        showToast('Flat updated successfully', 'success');
-      } else {
-        const block = blocks.find(b => b._id === formData.blockId);
-        await api.post('/societies/flats', {
-          number: formData.number,
-          blockName: block?.name,
-          blockId: formData.blockId,
-          plotNumber: formData.plotNumber,
-          fullAddress: formData.fullAddress,
-          ownerName: formData.ownerName || undefined,
-          ownerEmail: formData.ownerEmail || undefined,
-          ownerPhone: formData.ownerPhone || undefined,
-        });
-        showToast('Flat created successfully', 'success');
-      }
-      handleClose();
-      fetchFlats();
-    } catch (err: any) {
-      showToast(err.response?.data?.error || 'Failed to save flat', 'error');
-    } finally {
-      setSubmitting(false);
+      router.push(`/dashboard/flats/create`);
     }
   };
 
@@ -193,11 +153,10 @@ export default function FlatsPage() {
       const res = await api.post('/societies/flats/bulk-upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      showToast(res.data.message || 'Bulk upload successful', 'success');
-      if (res.data.errors?.length > 0) {
-        console.warn('Upload errors:', res.data.errors);
-        showToast(`Warning: ${res.data.errors.length} rows failed. Check console for details.`, 'warning');
-      }
+      
+      setUploadSummary(res.data.summary);
+      setUploadResults(res.data.results);
+      setModalOpen(true);
       fetchFlats();
     } catch (err: any) {
       showToast(err.response?.data?.error || 'Bulk upload failed', 'error');
@@ -222,7 +181,7 @@ export default function FlatsPage() {
     },
     {
       id: 'owner',
-      label: 'Owner',
+      label: 'Flat/Plot Owner',
       render: (row) => row.ownerUserId ? (
         <div>
           <span className="text-sm">{row.ownerUserId.name}</span>
@@ -319,7 +278,7 @@ export default function FlatsPage() {
         data={flats}
         loading={loading}
         keyExtractor={(row) => row._id}
-        emptyText="No flats found."
+        emptyText="No flats found. Click 'Add New Flat' or use 'Bulk Upload' to add properties."
         pagination={{
           page: pagination.page,
           pageSize: pagination.pageSize,
@@ -328,110 +287,12 @@ export default function FlatsPage() {
           onPageSizeChange: (s) => setPagination(prev => ({ ...prev, pageSize: s, page: 0 }))
         }}
       />
-
-      <Dialog open={openModal} onClose={handleClose} maxWidth="sm" fullWidth slotProps={{ paper: { className: 'rounded-2xl' } }}>
-        <DialogTitle className="font-bold text-slate-800 border-b border-slate-100">
-          {editingId ? 'Edit Flat' : 'Add New Flat'}
-        </DialogTitle>
-        <DialogContent className="pt-6 space-y-4">
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 6 }}>
-              <FormControl fullWidth size="small" required>
-                <InputLabel>Block</InputLabel>
-                <Select
-                  value={formData.blockId}
-                  label="Block"
-                  onChange={(e) => setFormData({ ...formData, blockId: e.target.value })}
-                  disabled={!!editingId}
-                >
-                  {blocks.map(b => (
-                    <MenuItem key={b._id} value={b._id}>{b.name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid size={{ xs: 6 }}>
-              <TextField
-                label="Flat Number"
-                fullWidth
-                size="small"
-                required
-                value={formData.number}
-                onChange={(e) => setFormData({ ...formData, number: e.target.value })}
-                disabled={!!editingId}
-              />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                label="Plot Number (Optional)"
-                fullWidth
-                size="small"
-                value={formData.plotNumber}
-                onChange={(e) => setFormData({ ...formData, plotNumber: e.target.value })}
-              />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                label="Full Address (Optional)"
-                fullWidth
-                size="small"
-                multiline
-                rows={2}
-                value={formData.fullAddress}
-                onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
-              />
-            </Grid>
-          </Grid>
-          
-          {!editingId && (
-            <div className="pt-4 border-t border-slate-100 mt-4 space-y-4">
-              <h3 className="text-sm font-semibold text-slate-700">Primary Owner (Optional)</h3>
-              <p className="text-xs text-slate-500">Provide an email to auto-provision an owner account.</p>
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <TextField
-                    label="Owner Name"
-                    fullWidth
-                    size="small"
-                    value={formData.ownerName}
-                    onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <TextField
-                    label="Owner Email"
-                    fullWidth
-                    size="small"
-                    type="email"
-                    value={formData.ownerEmail}
-                    onChange={(e) => setFormData({ ...formData, ownerEmail: e.target.value })}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <TextField
-                    label="Owner Phone"
-                    fullWidth
-                    size="small"
-                    value={formData.ownerPhone}
-                    onChange={(e) => setFormData({ ...formData, ownerPhone: e.target.value })}
-                  />
-                </Grid>
-              </Grid>
-            </div>
-          )}
-        </DialogContent>
-        <DialogActions className="p-4 border-t border-slate-100">
-          <Button onClick={handleClose} className="text-slate-600">Cancel</Button>
-          <Button
-            onClick={handleSubmit}
-            variant="contained"
-            disabled={submitting}
-            sx={{ backgroundColor: '#0a5bd7', '&:hover': { backgroundColor: '#094cb0' } }}
-          >
-            {submitting ? <CircularProgress size={24} color="inherit" /> : 'Save'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <BulkUploadResultModal 
+        open={modalOpen} 
+        onClose={() => setModalOpen(false)} 
+        summary={uploadSummary} 
+        results={uploadResults} 
+      />
     </div>
   );
 }

@@ -156,6 +156,19 @@ export default function LocationPicker({ latitude, longitude, onChange, height =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (ready && mapRef.current && markerRef.current) {
+      const pLat = Number(latitude);
+      const pLng = Number(longitude);
+      if (pLat && pLng) {
+        const currentPos = markerRef.current.getPosition();
+        if (!currentPos || Math.abs(currentPos.lat() - pLat) > 0.0001 || Math.abs(currentPos.lng() - pLng) > 0.0001) {
+          moveTo(pLat, pLng, mapRef.current.getZoom());
+        }
+      }
+    }
+  }, [latitude, longitude, ready]);
+
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">

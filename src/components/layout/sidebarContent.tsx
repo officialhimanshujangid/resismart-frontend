@@ -111,9 +111,13 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
     return [
       ...defaultLinks,
       {
-        label: 'Blocks',
-        icon: <Building className="w-5 h-5" />,
-        href: '/dashboard/blocks'
+        label: 'My Settings',
+        icon: <Settings className="w-5 h-5" />,
+        moduleKey: 'society_settings',
+        children: [
+          { label: 'Blocks', href: '/dashboard/blocks' },
+          { label: 'Flat Sizes', href: '/dashboard/flat-sizes' }
+        ]
       },
       {
         label: 'Flats',
