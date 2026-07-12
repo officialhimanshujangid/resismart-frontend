@@ -17,6 +17,7 @@ import LocationPicker from '@/components/common/LocationPicker';
 import ModuleScope from '@/components/common/ModuleScope';
 import StatCard from '@/components/common/StatCard';
 import SocietiesMap from '@/components/societies/SocietiesMap';
+import OtpVerifyField from '@/components/common/OtpVerifyField';
 
 interface Society {
   _id: string;
@@ -101,6 +102,8 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
   const [editTarget, setEditTarget] = useState<Society | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ ...blankForm });
+  const [emailToken, setEmailToken] = useState('');
+  const [phoneToken, setPhoneToken] = useState('');
 
   // Reject
   const [rejectTarget, setRejectTarget] = useState<Society | null>(null);
@@ -168,7 +171,7 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
 
   const activeFiltersCount = (appliedSearch ? 1 : 0) + (appliedStatus !== (mode === 'approvals' ? 'PENDING' : 'all') ? 1 : 0);
 
-  const openCreate = () => { setEditTarget(null); setForm({ ...blankForm }); setFormOpen(true); };
+  const openCreate = () => { setEditTarget(null); setForm({ ...blankForm }); setEmailToken(''); setPhoneToken(''); setFormOpen(true); };
   const openEdit = (s: Society) => {
     setEditTarget(s);
     setForm({
@@ -179,11 +182,16 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
       latitude: s.location?.coordinates?.[1] != null ? String(s.location.coordinates[1]) : '',
       longitude: s.location?.coordinates?.[0] != null ? String(s.location.coordinates[0]) : '',
     });
+    setEmailToken(''); setPhoneToken('');
     setFormOpen(true);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!editTarget && !form.contactPhone.trim()) {
+      showToast('Phone number is required to create a society', 'error');
+      return;
+    }
     setSaving(true);
     try {
       const payload: any = {
@@ -206,6 +214,13 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
         await api.put(`/societies/${editTarget._id}`, payload);
         showToast('Society updated successfully', 'success');
       } else {
+        if ((payload.contactEmail && !emailToken) || (payload.contactPhone && !phoneToken)) {
+          showToast('Please verify contact email and phone number via OTP', 'error');
+          setSaving(false);
+          return;
+        }
+        payload.emailVerificationToken = emailToken || undefined;
+        payload.phoneVerificationToken = phoneToken || undefined;
         await api.post('/societies/register-admin', payload);
         showToast('Society created and activated', 'success');
       }
@@ -446,9 +461,19 @@ export default function SocietiesManager({ mode }: { mode: 'manage' | 'approvals
             <div className="pt-2 border-t border-slate-100">
               <span className="text-xs font-black uppercase tracking-wider text-slate-400">Primary Admin Contact</span>
               <Grid container spacing={2} className="mt-1">
-                <Grid size={{ xs: 12, sm: 5 }}><TextField label="Admin Name" fullWidth value={form.contactName} onChange={(e) => setForm((f) => ({ ...f, contactName: e.target.value }))} /></Grid>
-                <Grid size={{ xs: 12, sm: 4 }}><TextField label="Admin Email" type="email" fullWidth value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} /></Grid>
-                <Grid size={{ xs: 12, sm: 3 }}><TextField label="Phone" fullWidth value={form.contactPhone} onChange={(e) => setForm((f) => ({ ...f, contactPhone: e.target.value }))} /></Grid>
+                <Grid size={{ xs: 12, sm: 4 }}><TextField label="Admin Name" fullWidth value={form.contactName} onChange={(e) => setForm((f) => ({ ...f, contactName: e.target.value }))} /></Grid>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <TextField label="Admin Email" type="email" fullWidth value={form.contactEmail} disabled={!editTarget && !!emailToken} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} />
+                  {!editTarget && form.contactEmail && (
+                    <OtpVerifyField channel="EMAIL" target={form.contactEmail} purpose="SOCIETY_REGISTRATION" onVerified={setEmailToken} onReset={() => setEmailToken('')} />
+                  )}
+                </Grid>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <TextField label="Phone" required={!editTarget} fullWidth value={form.contactPhone} disabled={!editTarget && !!phoneToken} onChange={(e) => setForm((f) => ({ ...f, contactPhone: e.target.value }))} helperText={!editTarget ? 'Used for the admin login' : undefined} />
+                  {!editTarget && form.contactPhone && (
+                    <OtpVerifyField channel="PHONE" target={form.contactPhone} purpose="SOCIETY_REGISTRATION" onVerified={setPhoneToken} onReset={() => setPhoneToken('')} />
+                  )}
+                </Grid>
               </Grid>
               {!editTarget && <p className="text-xs text-slate-400 mt-2">If an admin email is given, login credentials are emailed and a free trial starts immediately.</p>}
             </div>

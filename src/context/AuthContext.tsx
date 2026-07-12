@@ -11,6 +11,19 @@ export interface IUserProfile {
   role: string;
 }
 
+/** A switchable workspace: one per flat/plot/shop the user holds, plus admin roles. */
+export interface IContext {
+  contextId: string;
+  kind: 'SOCIETY_UNIT' | 'SHOP' | 'ADMIN';
+  tenantType: 'SYSTEM' | 'SOCIETY' | 'SHOP';
+  tenantId: string;
+  tenantName: string;
+  unitType: 'FLAT' | 'SHOP' | null;
+  unitId: string | null;
+  unitLabel: string | null;
+  role: string;
+}
+
 export interface IModulePermission {
   module: string;
   moduleLabel: string;
@@ -23,19 +36,23 @@ export interface IModulePermission {
 export interface IUser {
   name: string;
   email: string;
+  phone?: string;
   profileImage?: string;
 }
 
 interface AuthContextType {
   user: IUser | null;
-  activeProfile: IUserProfile | null;
-  availableProfiles: IUserProfile[];
+  activeProfile: IUserProfile | null;   // derived from activeContext (kept for guards/sidebar)
+  activeContext: IContext | null;
+  availableContexts: IContext[];
   employeePermissions: IModulePermission[] | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; requiresContextSelection?: boolean; error?: string }>;
-  selectProfileContext: (tenantId: string, role: string, userId: string) => Promise<{ success: boolean; error?: string }>;
-  switchProfileContext: (tenantId: string, role: string) => Promise<{ success: boolean; error?: string }>;
+  login: (identifier: string, password: string) => Promise<{ success: boolean; error?: string; useOtp?: boolean }>;
+  loginOtpRequest: (identifier: string) => Promise<{ success: boolean; error?: string; devCode?: string; channel?: string }>;
+  loginOtpVerify: (identifier: string, code: string) => Promise<{ success: boolean; error?: string }>;
+  selectProfileContext: (contextId: string, userId: string) => Promise<{ success: boolean; error?: string }>;
+  switchContext: (contextId: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   forgotPassword: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
@@ -45,21 +62,53 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const toProfile = (ctx: IContext | null): IUserProfile | null =>
+  ctx ? { tenantType: ctx.tenantType, tenantId: ctx.tenantId, role: ctx.role } : null;
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<IUser | null>(null);
-  const [activeProfile, setActiveProfile] = useState<IUserProfile | null>(null);
-  const [availableProfiles, setAvailableProfiles] = useState<IUserProfile[]>([]);
+  const [activeContext, setActiveContext] = useState<IContext | null>(null);
+  const [availableContexts, setAvailableContexts] = useState<IContext[]>([]);
   const [employeePermissions, setEmployeePermissions] = useState<IModulePermission[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   const router = useNextRouter();
   const pathname = usePathname();
+
+  const activeProfile = toProfile(activeContext);
+
+  // Persist a resolved context to state + localStorage (and the legacy activeProfile shape).
+  const persistContext = (ctx: IContext | null) => {
+    setActiveContext(ctx);
+    if (ctx) {
+      localStorage.setItem('activeContext', JSON.stringify(ctx));
+      localStorage.setItem('activeContextId', ctx.contextId);
+      localStorage.setItem('activeProfile', JSON.stringify(toProfile(ctx)));
+    }
+  };
+
+  const persistContexts = (list: IContext[]) => {
+    setAvailableContexts(list || []);
+    localStorage.setItem('availableContexts', JSON.stringify(list || []));
+  };
+
+  const loadEmployeePermissions = async (role?: string) => {
+    if (role === 'SYSTEM_EMPLOYEE') {
+      try {
+        const permRes = await api.get('/system-employees/me/permissions');
+        const perms: IModulePermission[] = permRes.data.permissions ?? [];
+        setEmployeePermissions(perms);
+        localStorage.setItem('employeePermissions', JSON.stringify(perms));
+      } catch (_) {
+        setEmployeePermissions([]);
+      }
+    }
+  };
 
   // Handle initial session validation
   useEffect(() => {
     const initializeAuth = async () => {
       const localRefreshToken = localStorage.getItem('refreshToken');
-      const savedProfile = localStorage.getItem('activeProfile');
       const savedUser = localStorage.getItem('user');
 
       if (!localRefreshToken) {
@@ -68,65 +117,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        let tenantId = undefined;
-        let role = undefined;
+        const contextId = localStorage.getItem('activeContextId') || undefined;
 
-        if (savedProfile) {
-          try {
-            const parsed = JSON.parse(savedProfile);
-            tenantId = parsed.tenantId;
-            role = parsed.role;
-          } catch (_) {}
-        }
-
-        // Hit refresh endpoint to get active session
+        // Hit refresh endpoint to restore the active session under the same unit.
         const response = await api.post('/auth/refresh-token', {
           refreshToken: localRefreshToken,
-          tenantId,
-          role,
+          contextId,
         });
 
-        const { token, refreshToken: newRefreshToken, profile } = response.data;
-        
+        const { token, refreshToken: newRefreshToken, activeContext: ctx, availableContexts: list } = response.data;
+
         setAccessTokenInMemory(token);
         localStorage.setItem('refreshToken', newRefreshToken);
-        
+
         if (savedUser) {
           setUser(JSON.parse(savedUser));
         }
-        
-        if (profile) {
-          setActiveProfile(profile);
-          localStorage.setItem('activeProfile', JSON.stringify(profile));
 
-          // Load employee permissions if SYSTEM_EMPLOYEE
-          if (profile.role === 'SYSTEM_EMPLOYEE') {
-            try {
-              const permRes = await api.get('/system-employees/me/permissions');
-              const perms: IModulePermission[] = permRes.data.permissions ?? [];
-              setEmployeePermissions(perms);
-              localStorage.setItem('employeePermissions', JSON.stringify(perms));
-            } catch (_) {
-              setEmployeePermissions([]);
-            }
-          }
-        }
+        if (ctx) persistContext(ctx);
+        if (Array.isArray(list)) persistContexts(list);
 
+        await loadEmployeePermissions(ctx?.role);
       } catch (err) {
         console.error('Session auto-login failed:', err);
-        // Clear auth data
         localStorage.removeItem('refreshToken');
+        localStorage.removeItem('activeContext');
+        localStorage.removeItem('activeContextId');
         localStorage.removeItem('activeProfile');
+        localStorage.removeItem('availableContexts');
         localStorage.removeItem('user');
         setUser(null);
-        setActiveProfile(null);
+        setActiveContext(null);
       } finally {
-        // Recover temp profiles if any
-        const savedProfilesList = localStorage.getItem('availableProfiles');
-        if (savedProfilesList) {
-          try { setAvailableProfiles(JSON.parse(savedProfilesList)); } catch (_) {}
+        // Recover cached lists so the switcher renders instantly on refresh.
+        const savedContexts = localStorage.getItem('availableContexts');
+        if (savedContexts) {
+          try { setAvailableContexts(JSON.parse(savedContexts)); } catch (_) {}
         }
-        // Recover cached employee permissions
         const savedPerms = localStorage.getItem('employeePermissions');
         if (savedPerms) {
           try { setEmployeePermissions(JSON.parse(savedPerms)); } catch (_) {}
@@ -137,10 +164,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initializeAuth();
 
-    // Listen for axios refresh failure logs
     const handleForceLogout = () => {
       setUser(null);
-      setActiveProfile(null);
+      setActiveContext(null);
       router.push('/login');
     };
 
@@ -163,49 +189,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Login
-  const login = async (email: string, password: string) => {
+  // Login by email OR phone number.
+  const login = async (identifier: string, password: string) => {
     try {
       setIsLoading(true);
-      const response = await api.post('/auth/login', { email, password });
-      
+      const response = await api.post('/auth/login', { identifier, password });
       const data = response.data;
 
-      if (data.requiresContextSelection) {
-        setAvailableProfiles(data.profiles);
-        // Cache profiles and userId temporarily in localStorage for selectContext page
-        localStorage.setItem('tempUserId', data.userId);
-        localStorage.setItem('availableProfiles', JSON.stringify(data.profiles));
-        
-        // Save user details temporarily so we have them after context select
-        localStorage.setItem('user', JSON.stringify({ name: email.split('@')[0], email }));
-        
-        setIsLoading(false);
-        return { success: true, requiresContextSelection: true };
-      }
+      const { token, refreshToken, activeContext: ctx, availableContexts: list, user: loggedUser } = data;
 
-      // Auto-selected exactly 1 context
-      const { token, refreshToken, profile, user: loggedUser } = data;
-      
       setAccessTokenInMemory(token);
       localStorage.setItem('refreshToken', refreshToken);
       localStorage.setItem('user', JSON.stringify(loggedUser));
-      localStorage.setItem('activeProfile', JSON.stringify(profile));
-      
-      setUser(loggedUser);
-      setActiveProfile(profile);
 
-      // Fetch employee permissions if SYSTEM_EMPLOYEE
-      if (profile.role === 'SYSTEM_EMPLOYEE') {
-        try {
-          const permRes = await api.get('/system-employees/me/permissions');
-          const perms: IModulePermission[] = permRes.data.permissions ?? [];
-          setEmployeePermissions(perms);
-          localStorage.setItem('employeePermissions', JSON.stringify(perms));
-        } catch (_) {
-          setEmployeePermissions([]);
-        }
-      }
+      setUser(loggedUser);
+      persistContext(ctx);
+      persistContexts(list || []);
+
+      await loadEmployeePermissions(ctx?.role);
 
       setIsLoading(false);
       return { success: true };
@@ -214,38 +215,68 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return {
         success: false,
         error: err.response?.data?.error || 'Invalid credentials',
+        useOtp: err.response?.data?.useOtp === true,
       };
     }
   };
 
-  // Select Profile Context
-  const selectProfileContext = async (tenantId: string, role: string, userId: string) => {
+  // Passwordless login — step 1: request a one-time code for an email/phone identity.
+  const loginOtpRequest = async (identifier: string) => {
+    try {
+      const res = await api.post('/auth/login/otp/request', { identifier });
+      return { success: true, devCode: res.data.devCode as string | undefined, channel: res.data.channel as string };
+    } catch (err: any) {
+      if (err.response?.status === 429) return { success: false, error: err.response?.data?.error || 'Please wait before requesting another code.' };
+      return { success: false, error: err.response?.data?.error || 'Failed to send code' };
+    }
+  };
+
+  // Passwordless login — step 2: verify the code and establish the session.
+  const loginOtpVerify = async (identifier: string, code: string) => {
     try {
       setIsLoading(true);
-      const response = await api.post('/auth/select-context', {
-        tenantId,
-        role,
-        userId,
-      });
+      const res = await api.post('/auth/login/otp/verify', { identifier, code });
+      const { token, refreshToken, activeContext: ctx, availableContexts: list, user: loggedUser } = res.data;
 
-      const { token, refreshToken, profile } = response.data;
-      
       setAccessTokenInMemory(token);
       localStorage.setItem('refreshToken', refreshToken);
-      localStorage.setItem('activeProfile', JSON.stringify(profile));
+      localStorage.setItem('user', JSON.stringify(loggedUser));
 
-      // Fetch user profile name (we can pull from temporary storage, or query a profile endpoint.
-      // Since login gave us the user email, let's keep user cached)
-      const cachedUser = localStorage.getItem('user') || '{"name":"User","email":""}';
-      const userObj = JSON.parse(cachedUser);
-      setUser(userObj);
-      localStorage.setItem('user', JSON.stringify(userObj));
-      
-      setActiveProfile(profile);
-      localStorage.removeItem('tempUserId');
-      localStorage.removeItem('availableProfiles');
+      setUser(loggedUser);
+      persistContext(ctx);
+      persistContexts(list || []);
+      await loadEmployeePermissions(ctx?.role);
+
       setIsLoading(false);
-      
+      return { success: true };
+    } catch (err: any) {
+      setIsLoading(false);
+      return { success: false, error: err.response?.data?.error || 'Verification failed' };
+    }
+  };
+
+  // Manual context selection (used by the /select-context fallback page).
+  // Goes through the refresh-token path (requires the refresh token) — the old
+  // credential-less /auth/select-context endpoint was removed for security.
+  const selectProfileContext = async (contextId: string, _userId?: string) => {
+    try {
+      setIsLoading(true);
+      const currentRefreshToken = localStorage.getItem('refreshToken');
+      if (!currentRefreshToken) throw new Error('No active session');
+
+      const response = await api.post('/auth/refresh-token', { refreshToken: currentRefreshToken, contextId });
+      const { token, refreshToken, activeContext: ctx, availableContexts: list } = response.data;
+
+      setAccessTokenInMemory(token);
+      localStorage.setItem('refreshToken', refreshToken);
+      persistContext(ctx);
+      if (Array.isArray(list)) persistContexts(list);
+
+      const cachedUser = localStorage.getItem('user') || '{"name":"User","email":""}';
+      setUser(JSON.parse(cachedUser));
+
+      localStorage.removeItem('tempUserId');
+      setIsLoading(false);
       return { success: true };
     } catch (err: any) {
       setIsLoading(false);
@@ -256,37 +287,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Switch context profile dynamically while logged in
-  const switchProfileContext = async (tenantId: string, role: string) => {
+  // Switch the active unit (flat/plot/shop) while logged in.
+  const switchContext = async (contextId: string) => {
     try {
       setIsLoading(true);
       const currentRefreshToken = localStorage.getItem('refreshToken');
-      
       if (!currentRefreshToken) {
         throw new Error('No refresh token found');
       }
 
       const response = await api.post('/auth/refresh-token', {
         refreshToken: currentRefreshToken,
-        tenantId,
-        role,
+        contextId,
       });
 
-      const { token, refreshToken: newRefreshToken, profile } = response.data;
-      
+      const { token, refreshToken: newRefreshToken, activeContext: ctx, availableContexts: list } = response.data;
+
       setAccessTokenInMemory(token);
       localStorage.setItem('refreshToken', newRefreshToken);
-      localStorage.setItem('activeProfile', JSON.stringify(profile));
-      
-      setActiveProfile(profile);
+      persistContext(ctx);
+      if (Array.isArray(list)) persistContexts(list);
+
       setIsLoading(false);
-      
       return { success: true };
     } catch (err: any) {
       setIsLoading(false);
       return {
         success: false,
-        error: err.response?.data?.error || 'Failed to switch profile context',
+        error: err.response?.data?.error || 'Failed to switch workspace',
       };
     }
   };
@@ -295,13 +323,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     setAccessTokenInMemory('');
     localStorage.removeItem('refreshToken');
+    localStorage.removeItem('activeContext');
+    localStorage.removeItem('activeContextId');
     localStorage.removeItem('activeProfile');
+    localStorage.removeItem('availableContexts');
     localStorage.removeItem('user');
     localStorage.removeItem('tempUserId');
-    localStorage.removeItem('availableProfiles');
     localStorage.removeItem('employeePermissions');
     setUser(null);
-    setActiveProfile(null);
+    setActiveContext(null);
+    setAvailableContexts([]);
     setEmployeePermissions(null);
     router.push('/login');
   };
@@ -341,20 +372,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const isAuthenticated = !!user && !!activeProfile;
+  const isAuthenticated = !!user && !!activeContext;
 
   return (
     <AuthContext.Provider
       value={{
         user,
         activeProfile,
-        availableProfiles,
+        activeContext,
+        availableContexts,
         employeePermissions,
         isAuthenticated,
         isLoading,
         login,
+        loginOtpRequest,
+        loginOtpVerify,
         selectProfileContext,
-        switchProfileContext,
+        switchContext,
         logout,
         register,
         forgotPassword,

@@ -10,6 +10,7 @@ import api from '@/lib/api';
 import {
   MapPin, Building, User, Mail, Phone, CheckCircle2, ArrowRight, ArrowLeft, Navigation, Loader2, AlertCircle,
 } from 'lucide-react';
+import OtpVerifyField from '@/components/common/OtpVerifyField';
 
 const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 const DEFAULT_CENTER = { lat: 28.6273, lng: 77.3649 };
@@ -48,6 +49,14 @@ export default function RegisterSocietyPage() {
   const markerObj = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState(false);
+
+  // Both the login email and the org phone must be OTP-verified before submitting.
+  const [emailToken, setEmailToken] = useState('');
+  const [phoneToken, setPhoneToken] = useState('');
+  const emailVerified = !!emailToken;
+  const phoneVerified = !!phoneToken;
+
+  const OTP_PURPOSE = 'SOCIETY_REGISTRATION';
 
   const setLatLng = (lat: number, lng: number) => {
     setFormData((f) => ({ ...f, latitude: lat.toFixed(6), longitude: lng.toFixed(6) }));
@@ -112,6 +121,10 @@ export default function RegisterSocietyPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!emailVerified || !phoneVerified) {
+      setError('Please verify both your email and phone number before submitting.');
+      return;
+    }
     setSubmitting(true);
     try {
       await api.post('/societies/register-public', {
@@ -119,7 +132,9 @@ export default function RegisterSocietyPage() {
         address: formData.address.trim(),
         contactName: formData.contactName.trim(),
         contactEmail: formData.contactEmail.trim(),
-        contactPhone: formData.contactPhone.trim() || undefined,
+        contactPhone: formData.contactPhone.trim(),
+        emailVerificationToken: emailToken,
+        phoneVerificationToken: phoneToken,
         latitude: formData.latitude ? Number(formData.latitude) : undefined,
         longitude: formData.longitude ? Number(formData.longitude) : undefined,
       });
@@ -253,20 +268,26 @@ export default function RegisterSocietyPage() {
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="admEmail" className="font-bold text-slate-700">Official Email</Label>
+                    <Label htmlFor="admEmail" className="font-bold text-slate-700">Official Email <span className="text-red-500">*</span></Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                      <Input id="admEmail" required type="email" placeholder="admin@societydomain.com" className="pl-9 rounded-xl border-slate-200/80 h-11"
+                      <Input id="admEmail" required type="email" placeholder="admin@societydomain.com" disabled={emailVerified}
+                        className="pl-9 rounded-xl border-slate-200/80 h-11 disabled:bg-slate-50 disabled:text-slate-500"
                         value={formData.contactEmail} onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })} />
                     </div>
+                    <OtpVerifyField channel="EMAIL" target={formData.contactEmail} purpose={OTP_PURPOSE}
+                      onVerified={setEmailToken} onReset={() => setEmailToken('')} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="admPhone" className="font-bold text-slate-700">Phone <span className="text-slate-400 font-normal">(optional)</span></Label>
+                    <Label htmlFor="admPhone" className="font-bold text-slate-700">Phone <span className="text-red-500">*</span></Label>
                     <div className="relative">
                       <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                      <Input id="admPhone" placeholder="+91 ..." className="pl-9 rounded-xl border-slate-200/80 h-11"
+                      <Input id="admPhone" required placeholder="+91 98765 43210" disabled={phoneVerified}
+                        className="pl-9 rounded-xl border-slate-200/80 h-11 disabled:bg-slate-50 disabled:text-slate-500"
                         value={formData.contactPhone} onChange={(e) => setFormData({ ...formData, contactPhone: e.target.value })} />
                     </div>
+                    <OtpVerifyField channel="PHONE" target={formData.contactPhone} purpose={OTP_PURPOSE}
+                      onVerified={setPhoneToken} onReset={() => setPhoneToken('')} />
                   </div>
 
                   {error && (
@@ -279,8 +300,8 @@ export default function RegisterSocietyPage() {
                     <Button type="button" onClick={() => setStep(1)} variant="outline" className="w-1/3 rounded-xl border-slate-200 text-slate-600 h-11 font-bold">
                       <ArrowLeft className="w-4 h-4 mr-2" /> Back
                     </Button>
-                    <Button type="submit" disabled={submitting} className="flex-1 bg-[#0a5bd7] hover:bg-[#0a5bd7]/90 text-white rounded-xl h-11 font-black shadow-md">
-                      {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Complete Registration'}
+                    <Button type="submit" disabled={submitting || !emailVerified || !phoneVerified} className="flex-1 bg-[#0a5bd7] hover:bg-[#0a5bd7]/90 text-white rounded-xl h-11 font-black shadow-md disabled:opacity-60">
+                      {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : (!emailVerified || !phoneVerified) ? 'Verify Email & Phone' : 'Complete Registration'}
                     </Button>
                   </div>
                 </form>

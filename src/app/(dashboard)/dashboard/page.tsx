@@ -8,6 +8,7 @@ import { CircularProgress } from '@mui/material';
 import ModuleScope from '../../../components/common/ModuleScope';
 import {
   Building, Users, Clock, CheckCircle2, ReceiptText, Repeat, Crown, ArrowRight, Sparkles, ShieldCheck,
+  Home, Store, MapPin, BadgeCheck, Ruler,
 } from 'lucide-react';
 import api from '../../../lib/api';
 
@@ -20,7 +21,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const { user, activeProfile } = useAuth();
+  const { user, activeProfile, activeContext } = useAuth();
   const role = activeProfile?.role || '';
 
   return (
@@ -41,7 +42,7 @@ export default function DashboardPage() {
       ) : role.startsWith('SOCIETY_') ? (
         <SocietyAdminDashboard />
       ) : (
-        <BasicContextCard role={role} tenant={activeProfile?.tenantType} />
+        <MyUnitPanel role={role} tenant={activeProfile?.tenantType} unitLabel={activeContext?.unitLabel || null} />
       )}
     </div>
   );
@@ -364,13 +365,92 @@ function SocietyAdminDashboard() {
   );
 }
 
-/* ───────────── Other roles ───────────── */
-function BasicContextCard({ role, tenant }: { role: string; tenant?: string }) {
+/* ───────────── Resident / Shopkeeper: active unit summary ───────────── */
+function MyUnitPanel({ role, tenant, unitLabel }: { role: string; tenant?: string; unitLabel: string | null }) {
+  const [loading, setLoading] = useState(true);
+  const [unitType, setUnitType] = useState<'FLAT' | 'SHOP' | null>(null);
+  const [unit, setUnit] = useState<any>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get('/me/unit-summary');
+        setUnitType(res.data.unitType);
+        setUnit(res.data.unit);
+      } catch (e) {
+        console.error('Failed to load unit summary', e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) return <div className="flex items-center justify-center py-24"><CircularProgress size={32} thickness={4} /></div>;
+
+  if (!unit) {
+    return <BasicContextCard role={role} tenant={tenant} unitLabel={unitLabel} />;
+  }
+
+  const isShop = unitType === 'SHOP';
+  const societyName = unit.societyId?.name || '';
+  const societyAddress = unit.societyId?.address || '';
+  const residentCount = Array.isArray(unit.residents) ? unit.residents.length : 0;
+
+  const rows: Array<{ icon: React.ReactNode; label: string; value: string }> = isShop
+    ? [
+        { icon: <MapPin className="w-4 h-4 text-[#0a5bd7]" />, label: 'Address', value: [unit.address, unit.city, unit.state, unit.pincode].filter(Boolean).join(', ') || '—' },
+        { icon: <BadgeCheck className="w-4 h-4 text-emerald-500" />, label: 'Status', value: unit.status || '—' },
+        { icon: <Store className="w-4 h-4 text-amber-500" />, label: 'Type', value: unit.storeType || unit.typeService || '—' },
+        { icon: <Users className="w-4 h-4 text-[#0a5bd7]" />, label: 'Contact', value: unit.contactNumber || '—' },
+      ]
+    : [
+        { icon: <Building className="w-4 h-4 text-[#0a5bd7]" />, label: 'Block', value: unit.blockName || unit.blockId?.name || '—' },
+        { icon: <Home className="w-4 h-4 text-[#0a5bd7]" />, label: 'Society', value: societyName || '—' },
+        { icon: <MapPin className="w-4 h-4 text-slate-400" />, label: 'Address', value: unit.fullAddress || societyAddress || '—' },
+        { icon: <Ruler className="w-4 h-4 text-slate-400" />, label: 'Size', value: unit.size?.name || '—' },
+        { icon: <BadgeCheck className="w-4 h-4 text-emerald-500" />, label: 'Status', value: (unit.status || '').replace(/_/g, ' ') || '—' },
+        { icon: <Users className="w-4 h-4 text-[#0a5bd7]" />, label: 'Residents', value: String(residentCount) },
+      ];
+
+  return (
+    <Card className="bg-white border-slate-200/60 shadow-sm">
+      <CardHeader className="p-6 flex flex-row items-center gap-4">
+        <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+          {isShop ? <Store className="w-7 h-7 text-[#0a5bd7]" /> : <Home className="w-7 h-7 text-[#0a5bd7]" />}
+        </div>
+        <div className="min-w-0">
+          <CardTitle className="text-xl font-extrabold text-slate-800 truncate">
+            {unitLabel || unit.name || unit.number || 'My Unit'}
+          </CardTitle>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {isShop ? 'Your shop' : societyName ? `Flat / Plot · ${societyName}` : 'Your unit'} · <span className="font-bold">{role.replace(/_/g, ' ')}</span>
+          </p>
+        </div>
+      </CardHeader>
+      <CardContent className="px-6 pb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {rows.map((r, i) => (
+            <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <span className="w-8 h-8 rounded-lg bg-white border border-slate-100 flex items-center justify-center shrink-0">{r.icon}</span>
+              <div className="min-w-0">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{r.label}</div>
+                <div className="text-sm font-bold text-slate-700 truncate">{r.value}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ───────────── Fallback (no unit resolved) ───────────── */
+function BasicContextCard({ role, tenant, unitLabel }: { role: string; tenant?: string; unitLabel?: string | null }) {
   return (
     <Card className="bg-white border-slate-200/60 shadow-sm">
       <CardContent className="p-8 text-center space-y-2">
         <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center mx-auto"><Users className="w-7 h-7 text-[#0a5bd7]" /></div>
-        <h3 className="text-lg font-extrabold text-slate-800">Workspace ready</h3>
+        <h3 className="text-lg font-extrabold text-slate-800">{unitLabel || 'Workspace ready'}</h3>
         <p className="text-sm text-slate-500">You are in the <span className="font-bold">{tenant}</span> workspace as <span className="font-bold">{role.replace(/_/g, ' ')}</span>. Use the sidebar to access your available modules.</p>
       </CardContent>
     </Card>

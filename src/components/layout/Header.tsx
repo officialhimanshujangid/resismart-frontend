@@ -1,26 +1,29 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useAuth, IUserProfile } from '../../context/AuthContext';
+import React, { useMemo } from 'react';
+import { useAuth, IContext } from '../../context/AuthContext';
 import { Button } from '../ui/button';
 import { useRouter } from 'next/navigation';
 import { ResiSmartLogo } from './ResiSmartLogo';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuLabel, 
-  DropdownMenuSeparator, 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   DropdownMenuPortal,
   DropdownMenuGroup
 } from '../ui/dropdown-menu';
-import { 
-  Menu, 
-  User, 
-  ChevronDown, 
+import {
+  Menu,
+  User,
+  ChevronDown,
   RefreshCw,
-  LogOut
+  LogOut,
+  Home,
+  Store,
+  Building2
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -28,34 +31,40 @@ interface HeaderProps {
   setSwitching: (switching: boolean) => void;
 }
 
+const formatRoleName = (role: string) =>
+  role.split('_').map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+
+const getRoleBadgeStyle = (role: string) => {
+  if (role.startsWith('SYSTEM_')) return 'bg-violet-500/10 text-violet-700 border-violet-500/20';
+  if (role.startsWith('SOCIETY_') || role.startsWith('RESIDENT_') || role === 'FAMILY_MEMBER')
+    return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
+  return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
+};
+
+const ContextIcon = ({ ctx, className }: { ctx: IContext; className?: string }) => {
+  if (ctx.kind === 'SHOP') return <Store className={className} />;
+  if (ctx.kind === 'SOCIETY_UNIT') return <Home className={className} />;
+  return <Building2 className={className} />;
+};
+
 export function Header({ setMobileOpen, setSwitching }: HeaderProps) {
-  const { user, activeProfile, switchProfileContext, logout } = useAuth();
-  const [otherProfiles, setOtherProfiles] = useState<IUserProfile[]>([]);
+  const { user, activeContext, availableContexts, switchContext, logout } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
-    const cachedProfiles = localStorage.getItem('availableProfiles');
-    if (cachedProfiles && activeProfile) {
-      try {
-        const list = JSON.parse(cachedProfiles) as IUserProfile[];
-        const filtered = list.filter(
-          (p) => !(p.tenantId === activeProfile.tenantId && p.role === activeProfile.role)
-        );
-        setOtherProfiles(filtered);
-      } catch (_) {}
-    }
-  }, [activeProfile]);
+  const otherContexts = useMemo(
+    () => availableContexts.filter((c) => c.contextId !== activeContext?.contextId),
+    [availableContexts, activeContext]
+  );
 
-  const handleSwitchContext = async (profile: IUserProfile) => {
+  const handleSwitchContext = async (ctx: IContext) => {
     try {
       setSwitching(true);
-      const res = await switchProfileContext(profile.tenantId, profile.role);
+      const res = await switchContext(ctx.contextId);
       if (res.success) {
-        // reload window slightly to reset context deeply if preferred, or rely on state. 
-        // We will just let the state update. The DashboardLayout router.push was used previously.
+        // Full reload so every page re-scopes to the new unit's token.
         window.location.href = '/dashboard';
       } else {
-        alert(res.error || 'Failed to switch context');
+        alert(res.error || 'Failed to switch workspace');
         setSwitching(false);
       }
     } catch (err) {
@@ -64,18 +73,9 @@ export function Header({ setMobileOpen, setSwitching }: HeaderProps) {
     }
   };
 
-  const getRoleBadgeStyle = (role: string) => {
-    if (role.startsWith('SYSTEM_')) return 'bg-violet-500/10 text-violet-700 border-violet-500/20';
-    if (role.startsWith('SOCIETY_') || role.startsWith('RESIDENT_')) return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
-    return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
-  };
-
-  const formatRoleName = (role: string) => {
-    return role
-      .split('_')
-      .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
-      .join(' ');
-  };
+  const activeLabel = activeContext
+    ? (activeContext.unitLabel || activeContext.tenantName)
+    : '';
 
   return (
     <header className="h-16 bg-white/90 backdrop-blur-2xl border-b border-slate-200/60 flex items-center justify-between px-4 sm:px-6 relative z-10 sticky top-0 shadow-sm">
@@ -86,49 +86,61 @@ export function Header({ setMobileOpen, setSwitching }: HeaderProps) {
         >
           <Menu className="w-5 h-5 text-slate-700" />
         </button>
-        
+
         {/* Mobile Logo — visible only when the sidebar is collapsed on small screens */}
         <div className="lg:hidden">
           <ResiSmartLogo href="/dashboard" variant="compact" />
         </div>
-        
-        {activeProfile && (
+
+        {activeContext && (
           <div className="hidden lg:flex flex-row items-center space-x-3">
-            <span className={`text-[10px] sm:text-xs px-3 py-1.5 rounded-full border font-black uppercase tracking-wider shadow-sm ${getRoleBadgeStyle(activeProfile.role)}`}>
-              {formatRoleName(activeProfile.role)}
+            <span className={`text-[10px] sm:text-xs px-3 py-1.5 rounded-full border font-black uppercase tracking-wider shadow-sm ${getRoleBadgeStyle(activeContext.role)}`}>
+              {formatRoleName(activeContext.role)}
             </span>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider hidden md:inline bg-slate-100/50 px-2 py-1 rounded-md">
-              {activeProfile.tenantType} ID: {activeProfile.tenantId.substring(0, 6)}
+            <span className="flex items-center gap-1.5 text-xs text-slate-600 font-bold bg-slate-100/70 px-3 py-1.5 rounded-full">
+              <ContextIcon ctx={activeContext} className="w-3.5 h-3.5 text-[#0a5bd7]" />
+              <span className="truncate max-w-[220px]">{activeLabel}</span>
+              {activeContext.unitLabel && (
+                <span className="text-slate-400 font-medium hidden xl:inline">· {activeContext.tenantName}</span>
+              )}
             </span>
           </div>
         )}
       </div>
 
       <div className="flex items-center space-x-3 sm:space-x-5">
-        {/* Switch context option */}
-        {otherProfiles.length > 0 && (
+        {/* Switch unit / workspace */}
+        {otherContexts.length > 0 && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="hidden sm:flex border-white/60 bg-white/60 backdrop-blur-md text-xs font-bold text-slate-700 hover:bg-white hover:text-slate-900 rounded-full px-5 py-5 shadow-sm hover:shadow transition-all">
                 <RefreshCw className="w-4 h-4 mr-2 text-[#0a5bd7]" />
-                Switch Workspace
+                Switch Unit
                 <ChevronDown className="w-4 h-4 ml-2 text-slate-400" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-64 align-end p-2 rounded-2xl shadow-xl border-slate-100/50 bg-white/90 backdrop-blur-xl">
-              <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-2 pt-1 pb-2">Available Workspaces</DropdownMenuLabel>
-              {otherProfiles.map((profile, idx) => (
+            <DropdownMenuContent className="w-72 align-end p-2 rounded-2xl shadow-xl border-slate-100/50 bg-white/90 backdrop-blur-xl max-h-[70vh] overflow-y-auto">
+              <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-2 pt-1 pb-2">Your Units &amp; Workspaces</DropdownMenuLabel>
+              {otherContexts.map((ctx) => (
                 <DropdownMenuItem
-                  key={idx}
-                  onClick={() => handleSwitchContext(profile)}
-                  className="flex flex-col items-start p-3 rounded-xl cursor-pointer hover:bg-slate-50 focus:bg-slate-50 transition-colors mb-1"
+                  key={ctx.contextId}
+                  onClick={() => handleSwitchContext(ctx)}
+                  className="flex items-start gap-3 p-3 rounded-xl cursor-pointer hover:bg-slate-50 focus:bg-slate-50 transition-colors mb-1"
                 >
-                  <span className="font-bold text-slate-800 text-sm">
-                    {formatRoleName(profile.role)}
+                  <span className="mt-0.5 w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                    <ContextIcon ctx={ctx} className="w-4 h-4 text-[#0a5bd7]" />
                   </span>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    {profile.tenantType} • {profile.tenantId.substring(0, 8)}
-                  </span>
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-bold text-slate-800 text-sm truncate">
+                      {ctx.unitLabel || ctx.tenantName}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-semibold truncate">
+                      {ctx.unitLabel ? ctx.tenantName : formatRoleName(ctx.role)}
+                    </span>
+                    <span className={`mt-1 self-start text-[9px] px-2 py-0.5 rounded-md border font-black uppercase tracking-wider ${getRoleBadgeStyle(ctx.role)}`}>
+                      {formatRoleName(ctx.role)}
+                    </span>
+                  </div>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -155,36 +167,37 @@ export function Header({ setMobileOpen, setSwitching }: HeaderProps) {
               <DropdownMenuLabel className="flex flex-col space-y-1 p-3">
                 <span className="text-slate-900 font-extrabold text-base">{user.name}</span>
                 <span className="text-xs text-slate-500 font-bold truncate">{user.email}</span>
+                {user.phone && <span className="text-xs text-slate-400 font-semibold truncate">{user.phone}</span>}
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="my-1 bg-slate-100" />
-              
+
               <DropdownMenuItem className="p-3 rounded-2xl cursor-pointer font-bold text-slate-700 focus:bg-slate-50" onClick={() => router.push('/dashboard/profile')}>
                 <User className="w-4 h-4 mr-3 text-[#0a5bd7]" />
                 My Profile
               </DropdownMenuItem>
-              
-              {otherProfiles.length > 0 && (
+
+              {otherContexts.length > 0 && (
                 <DropdownMenuPortal>
                   <DropdownMenuGroup className="sm:hidden">
                     <DropdownMenuSeparator className="my-1 bg-slate-100" />
-                    <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-3 pt-2 pb-1">Switch Workspace</DropdownMenuLabel>
-                    {otherProfiles.map((profile, idx) => (
+                    <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-3 pt-2 pb-1">Switch Unit</DropdownMenuLabel>
+                    {otherContexts.map((ctx) => (
                       <DropdownMenuItem
-                        key={idx}
-                        onClick={() => handleSwitchContext(profile)}
+                        key={ctx.contextId}
+                        onClick={() => handleSwitchContext(ctx)}
                         className="p-3 rounded-2xl cursor-pointer font-bold text-slate-700 focus:bg-slate-50 mb-1"
                       >
-                        <RefreshCw className="w-4 h-4 mr-3 text-slate-400" />
+                        <ContextIcon ctx={ctx} className="w-4 h-4 mr-3 text-slate-400" />
                         <div className="flex flex-col">
-                           <span>{formatRoleName(profile.role)}</span>
-                           <span className="text-[9px] text-slate-400 uppercase tracking-wider">{profile.tenantType}</span>
+                          <span className="truncate">{ctx.unitLabel || ctx.tenantName}</span>
+                          <span className="text-[9px] text-slate-400 uppercase tracking-wider">{ctx.unitLabel ? ctx.tenantName : formatRoleName(ctx.role)}</span>
                         </div>
                       </DropdownMenuItem>
                     ))}
                   </DropdownMenuGroup>
                 </DropdownMenuPortal>
               )}
-              
+
               <DropdownMenuSeparator className="my-1 bg-slate-100" />
               <DropdownMenuItem onClick={logout} className="p-3 rounded-2xl cursor-pointer font-bold text-red-600 focus:bg-red-50 focus:text-red-700">
                 <LogOut className="w-4 h-4 mr-3" />

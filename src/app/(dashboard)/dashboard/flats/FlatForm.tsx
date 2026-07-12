@@ -9,6 +9,7 @@ import {
   Button, TextField, CircularProgress, MenuItem, Select, FormControl, InputLabel, Grid, Paper, Divider, IconButton
 } from '@mui/material';
 import { Save, ArrowLeft } from 'lucide-react';
+import OtpVerifyField from '@/components/common/OtpVerifyField';
 
 interface Block {
   _id: string;
@@ -57,6 +58,14 @@ export default function FlatForm({ flatId }: Props) {
   });
 
   const [societyLocation, setSocietyLocation] = useState<{ lat: number; lng: number } | null>(null);
+
+  // When provisioning an owner on create, BOTH email and phone must be OTP-verified.
+  const [ownerEmailToken, setOwnerEmailToken] = useState('');
+  const [ownerPhoneToken, setOwnerPhoneToken] = useState('');
+  const emailVerified = !!ownerEmailToken;
+  const phoneVerified = !!ownerPhoneToken;
+
+  const hasOwnerInfo = !!(formData.ownerName.trim() || formData.ownerEmail.trim() || formData.ownerPhone.trim());
 
   useEffect(() => {
     const fetchData = async () => {
@@ -131,6 +140,17 @@ export default function FlatForm({ flatId }: Props) {
       showToast('Flat number and block are required', 'error');
       return;
     }
+    // If an owner is being provisioned (create only), name + verified email + verified phone are required.
+    if (!flatId && hasOwnerInfo) {
+      if (!formData.ownerName.trim() || !formData.ownerEmail.trim()) {
+        showToast('Owner name and email are required', 'error');
+        return;
+      }
+      if (!emailVerified || !phoneVerified) {
+        showToast('Please verify the owner email and phone via OTP', 'error');
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       if (flatId) {
@@ -154,6 +174,8 @@ export default function FlatForm({ flatId }: Props) {
           ownerName: formData.ownerName || undefined,
           ownerEmail: formData.ownerEmail || undefined,
           ownerPhone: formData.ownerPhone || undefined,
+          ownerEmailVerificationToken: ownerEmailToken || undefined,
+          ownerPhoneVerificationToken: ownerPhoneToken || undefined,
         });
         showToast('Flat created successfully', 'success');
       }
@@ -267,30 +289,45 @@ export default function FlatForm({ flatId }: Props) {
               <>
                 <Divider sx={{ my: 4 }} />
                 <h3 className="text-sm font-bold text-slate-800 mb-1">Primary Flat/Plot Owner (Optional)</h3>
-                <p className="text-xs text-slate-500 mb-4">Provide an email to auto-provision an owner account.</p>
+                <p className="text-xs text-slate-500 mb-4">Leave blank for a vacant unit. If you add an owner, both their email and phone must be OTP-verified.</p>
                 <div className="flex flex-col gap-4">
                   <TextField
-                    label="Owner Name"
+                    label={hasOwnerInfo ? 'Owner Name *' : 'Owner Name'}
                     fullWidth
                     size="small"
                     value={formData.ownerName}
                     onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
                   />
-                  <TextField
-                    label="Owner Email"
-                    fullWidth
-                    size="small"
-                    type="email"
-                    value={formData.ownerEmail}
-                    onChange={(e) => setFormData({ ...formData, ownerEmail: e.target.value })}
-                  />
-                  <TextField
-                    label="Owner Phone"
-                    fullWidth
-                    size="small"
-                    value={formData.ownerPhone}
-                    onChange={(e) => setFormData({ ...formData, ownerPhone: e.target.value })}
-                  />
+                  <div>
+                    <TextField
+                      label={hasOwnerInfo ? 'Owner Email *' : 'Owner Email'}
+                      fullWidth
+                      size="small"
+                      type="email"
+                      value={formData.ownerEmail}
+                      disabled={emailVerified}
+                      onChange={(e) => setFormData({ ...formData, ownerEmail: e.target.value })}
+                    />
+                    {hasOwnerInfo && (
+                      <OtpVerifyField channel="EMAIL" target={formData.ownerEmail} purpose="FLAT_REGISTRATION"
+                        onVerified={setOwnerEmailToken} onReset={() => setOwnerEmailToken('')} />
+                    )}
+                  </div>
+
+                  <div>
+                    <TextField
+                      label={hasOwnerInfo ? 'Owner Phone *' : 'Owner Phone'}
+                      fullWidth
+                      size="small"
+                      value={formData.ownerPhone}
+                      disabled={phoneVerified}
+                      onChange={(e) => setFormData({ ...formData, ownerPhone: e.target.value })}
+                    />
+                    {hasOwnerInfo && (
+                      <OtpVerifyField channel="PHONE" target={formData.ownerPhone} purpose="FLAT_REGISTRATION"
+                        onVerified={setOwnerPhoneToken} onReset={() => setOwnerPhoneToken('')} />
+                    )}
+                  </div>
                 </div>
               </>
             )}

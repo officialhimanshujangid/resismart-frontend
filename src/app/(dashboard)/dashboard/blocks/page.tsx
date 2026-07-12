@@ -179,30 +179,32 @@ export default function BlocksPage() {
         <DialogTitle className="font-bold text-slate-800 border-b border-slate-100">
           {editingId ? 'Edit Block' : 'Add New Block'}
         </DialogTitle>
-        <DialogContent className="pt-6 space-y-4">
-          <TextField
-            autoFocus
-            label="Block Name"
-            fullWidth
-            required
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            placeholder="e.g. Tower A, Wing 1"
-          />
-          <TextField
-            label="Total Floors (Optional)"
-            fullWidth
-            type="number"
-            value={formData.totalFloors}
-            onChange={(e) => setFormData({ ...formData, totalFloors: e.target.value })}
-          />
-          <TextField
-            label="Block Type (Optional)"
-            fullWidth
-            value={formData.blockType}
-            onChange={(e) => setFormData({ ...formData, blockType: e.target.value })}
-            placeholder="e.g. Residential, Commercial"
-          />
+        <DialogContent className="pt-6">
+          <div className="flex flex-col gap-4">
+            <TextField
+              autoFocus
+              label="Block Name"
+              fullWidth
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="e.g. Tower A, Wing 1"
+            />
+            <TextField
+              label="Total Floors (Optional)"
+              fullWidth
+              type="number"
+              value={formData.totalFloors}
+              onChange={(e) => setFormData({ ...formData, totalFloors: e.target.value })}
+            />
+            <TextField
+              label="Block Type (Optional)"
+              fullWidth
+              value={formData.blockType}
+              onChange={(e) => setFormData({ ...formData, blockType: e.target.value })}
+              placeholder="e.g. Residential, Commercial"
+            />
+          </div>
         </DialogContent>
         <DialogActions className="p-4 border-t border-slate-100">
           <Button onClick={handleClose} className="text-slate-600">Cancel</Button>

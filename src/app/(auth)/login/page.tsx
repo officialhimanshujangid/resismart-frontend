@@ -19,52 +19,66 @@ import {
 } from 'lucide-react';
 
 export default function LoginPage() {
-  const { login, isAuthenticated, isLoading } = useAuth();
+  const { login, loginOtpRequest, loginOtpVerify, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
 
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Default flow is passwordless OTP; owner/staff can switch to password.
+  const [mode, setMode] = useState<'otp' | 'password'>('otp');
+  const [otpStep, setOtpStep] = useState<'identifier' | 'code'>('identifier');
+  const [otpCode, setOtpCode] = useState('');
+  const [devCode, setDevCode] = useState<string | null>(null);
+
   useEffect(() => {
-    // If already logged in, redirect to dashboard
-    if (!isLoading && isAuthenticated) {
-      router.push('/dashboard');
-    }
+    if (!isLoading && isAuthenticated) router.push('/dashboard');
   }, [isLoading, isAuthenticated, router]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
+  const resetOtp = () => { setOtpStep('identifier'); setOtpCode(''); setDevCode(null); setInfo(null); };
 
-    if (!email || !password) {
-      setError('Please fill in all fields.');
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      const result = await login(email, password);
-
-      if (!result.success) {
-        setError(result.error || 'Invalid credentials');
-      } else {
-        if (result.requiresContextSelection) {
-          router.push('/select-context');
-        } else {
-          router.push('/dashboard');
-        }
-      }
-    } catch (err) {
-      setError('An unexpected error occurred. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+  const sendCode = async () => {
+    setError(null); setInfo(null);
+    if (!identifier.trim()) { setError('Enter your email or phone number.'); return; }
+    setIsSubmitting(true);
+    const res = await loginOtpRequest(identifier.trim());
+    setIsSubmitting(false);
+    if (!res.success) { setError(res.error || 'Failed to send code'); return; }
+    setDevCode(res.devCode || null);
+    if (!res.devCode) setInfo(res.channel === 'EMAIL' ? 'If an account exists, a code was emailed to you.' : 'If an account exists, a code was sent.');
+    setOtpStep('code');
   };
 
-  const isEmailValid = email.includes('@') && email.includes('.');
+  const verifyCode = async () => {
+    setError(null);
+    if (!/^\d{6}$/.test(otpCode)) { setError('Enter the 6-digit code.'); return; }
+    setIsSubmitting(true);
+    const res = await loginOtpVerify(identifier.trim(), otpCode);
+    setIsSubmitting(false);
+    if (!res.success) { setError(res.error || 'Verification failed'); return; }
+    router.push('/dashboard');
+  };
+
+  const passwordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!identifier || !password) { setError('Please fill in all fields.'); return; }
+    setIsSubmitting(true);
+    const result = await login(identifier.trim(), password);
+    setIsSubmitting(false);
+    if (result.success) { router.push('/dashboard'); return; }
+    if (result.useOtp) { setMode('otp'); resetOtp(); setError('This account signs in with a one-time code — request one above.'); return; }
+    setError(result.error || 'Invalid credentials');
+  };
+
+  const isEmailEntry = identifier.includes('@');
+  const isIdentifierValid = isEmailEntry
+    ? identifier.includes('@') && identifier.includes('.')
+    : identifier.replace(/[^0-9]/g, '').length >= 10;
 
   return (
     <div className="min-h-screen bg-slate-200/70 flex items-center justify-center p-4 md:p-8">
@@ -163,104 +177,125 @@ export default function LoginPage() {
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (mode === 'password') passwordSubmit(e);
+                else if (otpStep === 'identifier') sendCode();
+                else verifyCode();
+              }}
+              className="space-y-6"
+            >
               {error && (
                 <div className="p-3.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-semibold animate-in fade-in duration-200">
                   {error}
                 </div>
               )}
+              {info && (
+                <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-100 text-blue-700 text-sm font-semibold animate-in fade-in duration-200">
+                  {info}
+                </div>
+              )}
 
-              {/* Email Input */}
+              {/* Email or Phone Input */}
               <div className="space-y-1.5 relative">
-                <Label htmlFor="email" className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">
-                  E-mail Address
+                <Label htmlFor="identifier" className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">
+                  Email or Phone Number
                 </Label>
                 <div className="relative group">
                   <Input
-                    id="email"
-                    type="email"
-                    placeholder="name@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="border border-slate-200 bg-slate-50 rounded-xl px-4 py-6 focus:border-[#0a5bd7] focus:ring-2 focus:ring-[#0a5bd7]/20 transition-all text-slate-800 placeholder:text-slate-400 text-sm w-full font-medium"
-                    disabled={isSubmitting}
+                    id="identifier"
+                    type="text"
+                    inputMode="email"
+                    autoComplete="username"
+                    placeholder="name@example.com or 9876543210"
+                    value={identifier}
+                    onChange={(e) => { setIdentifier(e.target.value); if (mode === 'otp' && otpStep === 'code') resetOtp(); }}
+                    className="border border-slate-200 bg-slate-50 rounded-xl px-4 py-6 focus:border-[#0a5bd7] focus:ring-2 focus:ring-[#0a5bd7]/20 transition-all text-slate-800 placeholder:text-slate-400 text-sm w-full font-medium disabled:opacity-70"
+                    disabled={isSubmitting || (mode === 'otp' && otpStep === 'code')}
                   />
-                  {/* Validation Icon */}
-                  {isEmailValid ? (
+                  {isIdentifierValid ? (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center animate-in scale-in duration-200">
                       <Check className="w-3.5 h-3.5 text-emerald-600" />
                     </div>
-                  ) : email.length > 0 ? (
+                  ) : identifier.length > 0 ? (
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold uppercase tracking-wider">typing</span>
                   ) : null}
                 </div>
               </div>
 
-              {/* Password Input */}
-              <div className="space-y-1.5 relative">
-                <Label htmlFor="password" className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">
-                  Password
-                </Label>
-                <div className="relative group">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="border border-slate-200 bg-slate-50 rounded-xl px-4 py-6 pr-12 focus:border-[#0a5bd7] focus:ring-2 focus:ring-[#0a5bd7]/20 transition-all text-slate-800 placeholder:text-slate-400 text-sm w-full font-medium"
-                    disabled={isSubmitting}
-                  />
-
-                  {/* Status checklist and show/hide */}
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center space-x-1.5">
-                    {password.length >= 6 && (
-                      <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center animate-in scale-in duration-200">
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors"
-                      tabIndex={-1}
-                    >
-                      {showPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
+              {/* PASSWORD MODE (owner / staff) */}
+              {mode === 'password' && (
+                <div className="space-y-1.5 relative">
+                  <Label htmlFor="password" className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Password</Label>
+                  <div className="relative group">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="border border-slate-200 bg-slate-50 rounded-xl px-4 py-6 pr-12 focus:border-[#0a5bd7] focus:ring-2 focus:ring-[#0a5bd7]/20 transition-all text-slate-800 placeholder:text-slate-400 text-sm w-full font-medium"
+                      disabled={isSubmitting}
+                    />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} tabIndex={-1}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors">
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                  <div className="flex justify-end pt-1">
+                    <Link href="/forgot-password" className="text-xs text-[#0a5bd7] font-semibold hover:text-[#0952c3] hover:underline transition-colors">Forgot Password?</Link>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Remember Me / Forgot Password */}
-              <div className="flex items-center justify-between pt-1">
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="remember"
-                    className="w-4 h-4 rounded text-[#0a5bd7] border-slate-300 focus:ring-[#0a5bd7] focus:ring-offset-0 cursor-pointer"
+              {/* OTP CODE STEP */}
+              {mode === 'otp' && otpStep === 'code' && (
+                <div className="space-y-2">
+                  {devCode && (
+                    <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-100 text-xs font-semibold text-blue-800">
+                      Dev mode (no SMS gateway): your code is <span className="font-black tracking-widest">{devCode}</span>
+                    </div>
+                  )}
+                  <Label htmlFor="otp" className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">One-time code</Label>
+                  <Input
+                    id="otp"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="6-digit code"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                    className="border border-slate-200 bg-slate-50 rounded-xl px-4 py-6 tracking-[0.4em] font-bold text-slate-800 text-sm w-full"
+                    disabled={isSubmitting}
                   />
-                  <Label htmlFor="remember" className="text-xs text-slate-500 font-medium cursor-pointer">
-                    Keep me signed in
-                  </Label>
+                  <div className="flex justify-end">
+                    <button type="button" onClick={sendCode} disabled={isSubmitting} className="text-xs text-[#0a5bd7] font-semibold hover:underline">Resend code</button>
+                  </div>
                 </div>
-                <Link href="/forgot-password" className="text-xs text-[#0a5bd7] font-semibold hover:text-[#0952c3] hover:underline transition-colors">
-                  Forgot Password?
-                </Link>
-              </div>
+              )}
 
-              {/* Buttons: Sign In (Filled) */}
-              <div className="pt-4">
+              {/* Submit */}
+              <div className="pt-2">
                 <Button
                   type="submit"
                   className="w-full bg-gradient-to-r from-[#0a5bd7] to-[#2691f5] hover:from-[#0952c3] hover:to-[#1f80dc] text-white rounded-xl py-6 font-bold shadow-lg shadow-blue-500/30 active:scale-[0.98] transition-all text-sm flex items-center justify-center gap-1.5"
                   loading={isSubmitting}
                 >
-                  {!isSubmitting && <span>Sign In</span>}
+                  {!isSubmitting && <span>{mode === 'password' ? 'Sign In' : otpStep === 'identifier' ? 'Send code' : 'Verify & sign in'}</span>}
                 </Button>
+              </div>
+
+              {/* Mode toggle */}
+              <div className="text-center">
+                {mode === 'otp' ? (
+                  <button type="button" onClick={() => { setMode('password'); setError(null); setInfo(null); }} className="text-xs text-slate-500 hover:text-[#0a5bd7] font-semibold">
+                    Sign in with password instead
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => { setMode('otp'); resetOtp(); setError(null); }} className="text-xs text-slate-500 hover:text-[#0a5bd7] font-semibold">
+                    Use a one-time code instead
+                  </button>
+                )}
               </div>
             </form>
           </div>

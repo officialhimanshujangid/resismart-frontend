@@ -75,36 +75,35 @@ api.interceptors.response.use(
       }
 
       try {
-        // Read current context from localStorage so we can re-request token under same context
-        const savedProfile = typeof window !== 'undefined' ? localStorage.getItem('activeProfile') : null;
-        let tenantId = undefined;
-        let role = undefined;
-
-        if (savedProfile) {
-          try {
-            const parsed = JSON.parse(savedProfile);
-            tenantId = parsed.tenantId;
-            role = parsed.role;
-          } catch (_) { }
-        }
+        // Re-request a token under the SAME unit-granular context.
+        const contextId = typeof window !== 'undefined'
+          ? (localStorage.getItem('activeContextId') || undefined)
+          : undefined;
 
         const response = await axios.post(
           `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/auth/refresh-token`,
           // `${process.env.NEXT_PUBLIC_API_URL || 'https://resismart-backend.onrender.com/api/v1'}/auth/refresh-token`,
           {
             refreshToken: localRefreshToken,
-            tenantId,
-            role,
+            contextId,
           }
         );
 
-        const { token, refreshToken: newRefreshToken, profile } = response.data;
+        const { token, refreshToken: newRefreshToken, profile, activeContext } = response.data;
 
         setAccessTokenInMemory(token);
 
         if (typeof window !== 'undefined') {
           localStorage.setItem('refreshToken', newRefreshToken);
-          if (profile) {
+          if (activeContext) {
+            localStorage.setItem('activeContext', JSON.stringify(activeContext));
+            localStorage.setItem('activeContextId', activeContext.contextId);
+            localStorage.setItem('activeProfile', JSON.stringify({
+              tenantType: activeContext.tenantType,
+              tenantId: activeContext.tenantId,
+              role: activeContext.role,
+            }));
+          } else if (profile) {
             localStorage.setItem('activeProfile', JSON.stringify(profile));
           }
         }
@@ -122,6 +121,9 @@ api.interceptors.response.use(
         if (typeof window !== 'undefined') {
           localStorage.removeItem('refreshToken');
           localStorage.removeItem('activeProfile');
+          localStorage.removeItem('activeContext');
+          localStorage.removeItem('activeContextId');
+          localStorage.removeItem('availableContexts');
           localStorage.removeItem('user');
           window.dispatchEvent(new Event('auth-logout'));
         }
