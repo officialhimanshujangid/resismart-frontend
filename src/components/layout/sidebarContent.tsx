@@ -5,7 +5,9 @@ import {
   Building,
   DollarSign,
   UsersRound,
-  Store
+  Store,
+  Megaphone,
+  ShieldCheck
 } from 'lucide-react';
 
 export interface SidebarLink {
@@ -94,6 +96,17 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         ]
       },
       {
+        label: 'Marketplace',
+        icon: <Megaphone className="w-5 h-5" />,
+        moduleKey: 'marketplace',
+        permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'],
+        children: [
+          { label: 'Revenue', href: '/owner/marketplace/revenue', moduleKey: 'marketplace_revenue', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'All Listings', href: '/owner/marketplace/listings', moduleKey: 'marketplace_listings', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'Settings', href: '/owner/marketplace/settings', moduleKey: 'marketplace_settings', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+        ],
+      },
+      {
         label: 'Global Setup',
         icon: <Settings className="w-5 h-5" />,
         moduleKey: 'settings_general',
@@ -125,9 +138,43 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         href: '/dashboard/flats'
       },
       {
+        label: 'Approvals',
+        icon: <ShieldCheck className="w-5 h-5" />,
+        href: '/dashboard/approvals'
+      },
+      {
+        label: 'Marketplace',
+        icon: <Megaphone className="w-5 h-5" />,
+        children: [
+          { label: 'Browse', href: '/dashboard/marketplace/browse' },
+          { label: 'My Listings', href: '/dashboard/marketplace' },
+          { label: 'Saved', href: '/dashboard/marketplace/saved' },
+        ],
+      },
+      {
         label: 'Billing & Subscription',
         icon: <DollarSign className="w-5 h-5" />,
         href: '/dashboard/billing'
+      }
+    ];
+  }
+
+  // Resident (flat owner / tenant / family) links
+  if (role.startsWith('RESIDENT_') || role === 'FAMILY_MEMBER') {
+    return [
+      ...defaultLinks,
+      {
+        label: 'Approvals',
+        icon: <ShieldCheck className="w-5 h-5" />,
+        href: '/dashboard/approvals'
+      },
+      {
+        label: 'Marketplace',
+        icon: <Megaphone className="w-5 h-5" />,
+        children: [
+          { label: 'Browse', href: '/dashboard/marketplace/browse' },
+          { label: 'My Listings', href: '/dashboard/marketplace' },
+        ],
       }
     ];
   }

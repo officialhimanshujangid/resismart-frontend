@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
+import "../components/marketplace/theme.css";
 import { AuthProvider } from "../context/AuthContext";
 import { MuiThemeProvider } from "../context/MuiThemeProvider";
 import { ToastConfirmProvider } from "../context/ToastConfirmContext";

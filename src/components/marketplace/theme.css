@@ -1,0 +1,71 @@
+/*
+ * Marketplace design tokens — the dedicated consumer real-estate brand.
+ * Scoped under `.mkt` so it NEVER leaks into the admin dashboard. The public
+ * `(public)/marketplace` layout and the in-app browse route wrap their trees in
+ * a `.mkt` container to opt in. Shared primitives (ListingCard, ListingMap,
+ * VerifiedBadge, PriceTag, BoostRibbon) read only from these variables.
+ *
+ * Added in Phase 0 as scaffolding; consumed by Phase 3/4/6 components.
+ */
+
+.mkt {
+  /* Brand palette */
+  --mkt-primary: #0f766e;        /* teal — trust + real estate */
+  --mkt-primary-strong: #0b5c55;
+  --mkt-primary-soft: #ccfbf1;
+  --mkt-accent: #f59e0b;         /* amber — boosted / spotlight */
+  --mkt-accent-soft: #fef3c7;
+  --mkt-verified: #16a34a;       /* green — verified badge */
+  --mkt-danger: #e11d48;
+
+  /* Neutrals */
+  --mkt-ink: #0f172a;
+  --mkt-ink-soft: #475569;
+  --mkt-muted: #94a3b8;
+  --mkt-line: #e2e8f0;
+  --mkt-surface: #ffffff;
+  --mkt-surface-2: #f8fafc;
+  --mkt-bg: #f1f5f9;
+
+  /* Type scale (1.25 ratio) */
+  --mkt-font: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
+  --mkt-fs-display: 2.5rem;
+  --mkt-fs-h1: 2rem;
+  --mkt-fs-h2: 1.5rem;
+  --mkt-fs-h3: 1.25rem;
+  --mkt-fs-body: 1rem;
+  --mkt-fs-sm: 0.875rem;
+  --mkt-fs-xs: 0.75rem;
+
+  /* Spacing (8pt grid) */
+  --mkt-sp-1: 0.25rem;
+  --mkt-sp-2: 0.5rem;
+  --mkt-sp-3: 0.75rem;
+  --mkt-sp-4: 1rem;
+  --mkt-sp-6: 1.5rem;
+  --mkt-sp-8: 2rem;
+  --mkt-sp-12: 3rem;
+
+  /* Radius + shadows */
+  --mkt-radius-sm: 8px;
+  --mkt-radius: 14px;
+  --mkt-radius-lg: 20px;
+  --mkt-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --mkt-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  --mkt-shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+
+  color: var(--mkt-ink);
+  font-family: var(--mkt-font);
+}
+
+@media (prefers-color-scheme: dark) {
+  .mkt {
+    --mkt-ink: #e2e8f0;
+    --mkt-ink-soft: #94a3b8;
+    --mkt-muted: #64748b;
+    --mkt-line: #1e293b;
+    --mkt-surface: #0f172a;
+    --mkt-surface-2: #111c33;
+    --mkt-bg: #0b1220;
+  }
+}
