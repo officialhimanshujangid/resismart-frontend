@@ -58,14 +58,3 @@
   font-family: var(--mkt-font);
 }
 
-@media (prefers-color-scheme: dark) {
-  .mkt {
-    --mkt-ink: #e2e8f0;
-    --mkt-ink-soft: #94a3b8;
-    --mkt-muted: #64748b;
-    --mkt-line: #1e293b;
-    --mkt-surface: #0f172a;
-    --mkt-surface-2: #111c33;
-    --mkt-bg: #0b1220;
-  }
-}

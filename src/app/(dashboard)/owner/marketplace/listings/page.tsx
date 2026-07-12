@@ -6,7 +6,7 @@ import { useToastConfirm } from '@/context/ToastConfirmContext';
 import VerifiedBadge from '@/components/marketplace/VerifiedBadge';
 import { DataTable, ColumnDef } from '@/components/common/DataTable';
 import { TablePagination, Chip, Button, TextField, MenuItem, Select, FormControl, InputLabel } from '@mui/material';
-import { ShieldX, Rocket } from 'lucide-react';
+import { ShieldX, Rocket, Search } from 'lucide-react';
 
 const inr = (p: number) => `₹${(p / 100).toLocaleString('en-IN')}`;
 const statusColor: Record<string, any> = { DRAFT: 'default', ACTIVE: 'success', PAUSED: 'warning', SOLD: 'info', RENTED: 'info', EXPIRED: 'default', TAKEN_DOWN: 'error' };
@@ -63,7 +63,11 @@ export default function OwnerListingsPage() {
     <div className="space-y-5 animate-in fade-in duration-300">
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0f766e] to-[#14b8a6] p-6 shadow-lg">
         <div className="absolute -right-10 -top-10 w-48 h-48 rounded-full bg-white/10 blur-2xl" />
-        <div className="relative"><h1 className="text-2xl font-black text-white tracking-tight">All Listings</h1><p className="text-sm text-teal-50 mt-1">Moderate property advertisements across societies</p></div>
+        <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div><h1 className="text-2xl font-black text-white tracking-tight">All Listings</h1><p className="text-sm text-teal-50 mt-1">Moderate property advertisements across societies</p></div>
+          <Button onClick={() => window.open('/property-marketplace', '_blank')} variant="outlined" startIcon={<Search className="w-4 h-4" />}
+            sx={{ borderColor: 'rgba(255,255,255,0.5)', color: '#fff', '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: '#fff' } }}>Browse Public Ads</Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 bg-white border border-slate-200/70 rounded-2xl p-3">

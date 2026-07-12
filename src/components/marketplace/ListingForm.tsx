@@ -7,12 +7,21 @@ import { useAuth } from '@/context/AuthContext';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 import {
   Button, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
-  Paper, Grid, ToggleButton, ToggleButtonGroup, Switch, IconButton, Tooltip,
+  Paper, Grid, ToggleButton, ToggleButtonGroup, Switch, IconButton, Tooltip, Alert,
 } from '@mui/material';
-import { ImagePlus, Star, Trash2, Save, ArrowLeft } from 'lucide-react';
+import { ImagePlus, Star, Trash2, Save, ArrowLeft, MapPin, Info } from 'lucide-react';
 
 interface Photo { url: string; isCover: boolean; }
-interface FlatOpt { _id: string; number: string; blockName: string; }
+
+interface FlatOpt {
+  _id: string;
+  number: string;
+  blockName: string;
+  fullAddress?: string;
+  city?: string;
+  ownerUserId?: string;
+  location?: { coordinates?: number[] };
+}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -27,6 +36,7 @@ export default function ListingForm({ listingId }: { listingId?: string }) {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [flats, setFlats] = useState<FlatOpt[]>([]);
+  const [selectedFlat, setSelectedFlat] = useState<FlatOpt | null>(null);
 
   const [kind, setKind] = useState<'RENT' | 'SALE'>('RENT');
   const [scope, setScope] = useState<'FLAT' | 'SOCIETY'>('FLAT');
@@ -45,10 +55,13 @@ export default function ListingForm({ listingId }: { listingId?: string }) {
 
   const loadFlats = useCallback(async () => {
     try {
-      const res = await api.get('/societies/flats', { params: { isPagination: 'false' } });
+      const params: Record<string, string> = { isPagination: 'false' };
+      // Non-admin flat owners: only fetch flats they own
+      if (!isAdmin) params.myFlatsOnly = 'true';
+      const res = await api.get('/societies/flats', { params });
       setFlats(res.data.flats || []);
     } catch { /* non-fatal */ }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     loadFlats();
@@ -70,6 +83,24 @@ export default function ListingForm({ listingId }: { listingId?: string }) {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingId]);
+
+  // When a flat is selected, sync selectedFlat and auto-suggest title
+  useEffect(() => {
+    if (!flatId) { setSelectedFlat(null); return; }
+    const flat = flats.find((f) => f._id === flatId) || null;
+    setSelectedFlat(flat);
+    if (flat && !editing && !title) {
+      setTitle(`${flat.blockName}-${flat.number} — ${kind === 'RENT' ? 'For Rent' : 'For Sale'}`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flatId, flats]);
+
+  // Auto-update title suggestion when kind changes
+  useEffect(() => {
+    if (!selectedFlat || editing) return;
+    setTitle(`${selectedFlat.blockName}-${selectedFlat.number} — ${kind === 'RENT' ? 'For Rent' : 'For Sale'}`);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind]);
 
   const onFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -131,12 +162,38 @@ export default function ListingForm({ listingId }: { listingId?: string }) {
 
   if (loading) return <div className="flex justify-center py-24"><CircularProgress /></div>;
 
+  // If non-admin has no owned flats, show a friendly message
+  if (!isAdmin && !editing && flats.length === 0) {
+    return (
+      <div className="max-w-lg text-center py-20 mx-auto space-y-4">
+        <div className="w-16 h-16 rounded-2xl bg-teal-50 flex items-center justify-center mx-auto">
+          <MapPin className="w-8 h-8 text-teal-600" />
+        </div>
+        <h2 className="text-xl font-black text-slate-800">No flats assigned</h2>
+        <p className="text-slate-500 text-sm">
+          You can only create listings for flats you own. Ask your society admin to assign you as the owner of your flat first.
+        </p>
+        <Button onClick={() => router.push('/dashboard/marketplace')} variant="outlined">
+          Go back
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-4xl animate-in fade-in duration-300 pb-6">
       <div className="flex items-center gap-3">
         <IconButton onClick={() => router.push('/dashboard/marketplace')} className="bg-white shadow-sm border border-slate-200"><ArrowLeft className="w-5 h-5" /></IconButton>
-        <h1 className="text-2xl font-black text-slate-800 tracking-tight">{editing ? 'Edit Listing' : 'New Listing'}</h1>
+        <h1 className="text-2xl font-black text-slate-800 tracking-tight">{editing ? 'Edit Listing' : 'New Property Listing'}</h1>
       </div>
+
+      {/* Admin note: flat owner must approve */}
+      {isAdmin && scope === 'FLAT' && !editing && (
+        <Alert severity="info" icon={<Info className="w-4 h-4" />} sx={{ borderRadius: 3 }}>
+          <strong>Note:</strong> Listings created for specific flats on behalf of the owner start as <strong>Pending Owner Approval</strong>.
+          The flat owner must approve the listing before it becomes Verified. You can still publish it immediately, but it will show as Unverified until approved.
+        </Alert>
+      )}
 
       <Paper elevation={0} className="p-6 rounded-2xl border border-slate-200/70 space-y-5">
         <ToggleButtonGroup exclusive value={kind} onChange={(_, v) => v && setKind(v)} disabled={editing} size="small" color="primary">
@@ -149,7 +206,7 @@ export default function ListingForm({ listingId }: { listingId?: string }) {
             <Grid size={{ xs: 12, sm: 4 }}>
               <FormControl fullWidth size="small" disabled={editing}>
                 <InputLabel>Scope</InputLabel>
-                <Select value={scope} label="Scope" onChange={(e) => setScope(e.target.value as any)}>
+                <Select value={scope} label="Scope" onChange={(e) => { setScope(e.target.value as any); setFlatId(''); setSelectedFlat(null); }}>
                   <MenuItem value="FLAT">A specific flat</MenuItem>
                   <MenuItem value="SOCIETY">Society-wide</MenuItem>
                 </Select>
@@ -159,14 +216,34 @@ export default function ListingForm({ listingId }: { listingId?: string }) {
           {scope === 'FLAT' && (
             <Grid size={{ xs: 12, sm: isAdmin ? 8 : 12 }}>
               <FormControl fullWidth size="small" disabled={editing}>
-                <InputLabel>Flat</InputLabel>
-                <Select value={flatId} label="Flat" onChange={(e) => setFlatId(e.target.value)}>
-                  {flats.map((f) => <MenuItem key={f._id} value={f._id}>{f.blockName}-{f.number}</MenuItem>)}
+                <InputLabel>{isAdmin ? 'Select any flat' : 'Select your flat'}</InputLabel>
+                <Select value={flatId} label={isAdmin ? 'Select any flat' : 'Select your flat'} onChange={(e) => setFlatId(e.target.value)}>
+                  {flats.length === 0 && <MenuItem value="" disabled>No flats available</MenuItem>}
+                  {flats.map((f) => (
+                    <MenuItem key={f._id} value={f._id}>
+                      {f.blockName}-{f.number}
+                      {f.fullAddress ? ` · ${f.fullAddress}` : ''}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>
           )}
         </Grid>
+
+        {/* Flat location preview */}
+        {selectedFlat && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-teal-50 rounded-xl border border-teal-100 text-sm text-teal-800">
+            <MapPin className="w-4 h-4 flex-shrink-0 text-teal-600" />
+            <span>
+              <strong>Location:</strong>{' '}
+              {selectedFlat.fullAddress || `${selectedFlat.blockName}-${selectedFlat.number}`}
+              {selectedFlat.location?.coordinates?.length === 2
+                ? ` · GPS: ${selectedFlat.location.coordinates[1].toFixed(5)}, ${selectedFlat.location.coordinates[0].toFixed(5)}`
+                : ' · (No GPS coordinates on file — will use society location)'}
+            </span>
+          </div>
+        )}
 
         <TextField label="Title" fullWidth size="small" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Bright 2BHK with balcony, near metro" />
         <TextField label="Description" fullWidth size="small" multiline minRows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
