@@ -7,7 +7,9 @@ import {
   UsersRound,
   Store,
   Megaphone,
-  ShieldCheck
+  ShieldCheck,
+  Home,
+  Landmark
 } from 'lucide-react';
 
 export interface SidebarLink {
@@ -145,6 +147,11 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         href: '/dashboard/approvals'
       },
       {
+        label: 'Committee',
+        icon: <Landmark className="w-5 h-5" />,
+        href: '/dashboard/committee'
+      },
+      {
         label: 'Resismart Housing',
         icon: <Megaphone className="w-5 h-5" />,
         children: [
@@ -166,6 +173,11 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
   if (role.startsWith('RESIDENT_') || role === 'FAMILY_MEMBER') {
     return [
       ...defaultLinks,
+      {
+        label: 'My Flat',
+        icon: <Home className="w-5 h-5" />,
+        href: '/dashboard/my-flat'
+      },
       {
         label: 'Approvals',
         icon: <ShieldCheck className="w-5 h-5" />,

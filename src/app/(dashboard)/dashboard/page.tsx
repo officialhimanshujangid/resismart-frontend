@@ -438,6 +438,11 @@ function MyUnitPanel({ role, tenant, unitLabel }: { role: string; tenant?: strin
             </div>
           ))}
         </div>
+        {!isShop && (
+          <Link href="/dashboard/my-flat" className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-[#0a5bd7] hover:underline">
+            Open My Flat — household, timeline & documents <ArrowRight className="w-4 h-4" />
+          </Link>
+        )}
       </CardContent>
     </Card>
   );
