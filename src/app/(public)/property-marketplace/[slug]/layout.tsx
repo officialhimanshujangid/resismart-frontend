@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://resismart-backend.onrender.com/api/v1';
 
 /** Fetch listing data server-side for SEO metadata generation. */
 async function getListingMeta(slug: string) {

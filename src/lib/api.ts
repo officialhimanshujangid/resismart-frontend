@@ -81,8 +81,7 @@ api.interceptors.response.use(
           : undefined;
 
         const response = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/auth/refresh-token`,
-          // `${process.env.NEXT_PUBLIC_API_URL || 'https://resismart-backend.onrender.com/api/v1'}/auth/refresh-token`,
+          `${process.env.NEXT_PUBLIC_API_URL || 'https://resismart-backend.onrender.com/api/v1'}/auth/refresh-token`,
           {
             refreshToken: localRefreshToken,
             contextId,
