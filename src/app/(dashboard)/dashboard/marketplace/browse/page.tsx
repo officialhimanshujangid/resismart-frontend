@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 import VerifiedBadge from '@/components/marketplace/VerifiedBadge';
-import MarketplaceMap from '@/components/marketplace/MarketplaceMap';
+import GoogleMarketMap from '@/components/marketplace/GoogleMarketMap';
 import {
   Button, Chip, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
   ToggleButton, ToggleButtonGroup, Dialog, DialogContent, IconButton,
@@ -21,6 +22,7 @@ interface Card {
 const inr = (p: number) => `₹${(p / 100).toLocaleString('en-IN')}`;
 
 export default function BrowsePage() {
+  const router = useRouter();
   const { showToast } = useToastConfirm();
   const [listings, setListings] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +34,7 @@ export default function BrowsePage() {
   const [min, setMin] = useState('');
   const [max, setMax] = useState('');
   const [bedrooms, setBedrooms] = useState('');
+  const [radiusKm, setRadiusKm] = useState(20);
 
   const [detail, setDetail] = useState<any | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -64,6 +67,7 @@ export default function BrowsePage() {
     try {
       const params: any = { pageSize: 24 };
       if (coords) { params.lng = coords[0]; params.lat = coords[1]; }
+      params.radiusKm = radiusKm;
       if (kind) params.kind = kind;
       if (min) params.min = min;
       if (max) params.max = max;
@@ -78,9 +82,10 @@ export default function BrowsePage() {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, min, max, bedrooms]);
+  }, [kind, min, max, bedrooms, radiusKm]);
 
-  useEffect(() => { fetchBrowse(viewer || undefined); }, [fetchBrowse]); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchBrowse(viewer || undefined); }, [fetchBrowse]);
 
   const useMyLocation = () => {
     if (!navigator.geolocation) return showToast('Geolocation not available', 'error');
@@ -109,8 +114,16 @@ export default function BrowsePage() {
             <div className="flex items-center gap-2"><MapPin className="w-6 h-6 text-white" /><h1 className="text-2xl font-black text-white tracking-tight">Browse Properties</h1></div>
             <p className="text-sm text-teal-50 mt-1">Homes to rent and buy near you</p>
           </div>
-          <Button onClick={useMyLocation} variant="contained" startIcon={<Locate className="w-4 h-4" />}
-            sx={{ backgroundColor: '#fff', color: '#0f766e', '&:hover': { backgroundColor: '#f1f5f9' } }}>Near me</Button>
+          <div className="flex items-center gap-3">
+            <Button onClick={() => router.push('/property-marketplace')} variant="contained"
+              sx={{ backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', boxShadow: 'none', '&:hover': { backgroundColor: 'rgba(255,255,255,0.3)', boxShadow: 'none' } }}>
+              Public Resismart Homes
+            </Button>
+            <Button onClick={useMyLocation} variant="contained" startIcon={<Locate className="w-4 h-4" />}
+              sx={{ backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', boxShadow: 'none', '&:hover': { backgroundColor: 'rgba(255,255,255,0.3)', boxShadow: 'none' } }}>
+              Near me
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -140,7 +153,18 @@ export default function BrowsePage() {
       ) : listings.length === 0 ? (
         <div className="text-center py-20 text-slate-400"><Home className="w-10 h-10 mx-auto mb-3 opacity-40" /><p className="font-semibold">No properties found</p><p className="text-sm">Try widening your filters.</p></div>
       ) : view === 'map' && viewer ? (
-        <div className="h-[520px]"><MarketplaceMap viewer={viewer} pins={listings} onSelect={openDetail} /></div>
+        <div className="h-[520px]">
+          <GoogleMarketMap 
+            viewer={viewer} 
+            listings={listings} 
+            onSelect={openDetail} 
+            centerCoords={viewer}
+            distanceKm={radiusKm}
+            onDistanceChange={setRadiusKm}
+            onMapClick={(c) => { setViewer(c); }}
+            publicMode={false}
+          />
+        </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {listings.map((l) => {

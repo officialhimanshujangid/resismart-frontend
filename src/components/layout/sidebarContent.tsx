@@ -96,12 +96,13 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         ]
       },
       {
-        label: 'Property Marketplace',
+        label: 'Resismart Housing',
         icon: <Megaphone className="w-5 h-5" />,
         moduleKey: 'marketplace',
         permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'],
         children: [
           { label: 'Map View', href: '/owner/marketplace/map', moduleKey: 'marketplace_map', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
+          { label: 'Enquiries', href: '/owner/marketplace/leads', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
           { label: 'Revenue', href: '/owner/marketplace/revenue', moduleKey: 'marketplace_revenue', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
           { label: 'All Listings', href: '/owner/marketplace/listings', moduleKey: 'marketplace_listings', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
           { label: 'Settings', href: '/owner/marketplace/settings', moduleKey: 'marketplace_settings', permittedUserType: ['SYSTEM_OWNER', 'SYSTEM_EMPLOYEE'] },
@@ -144,11 +145,12 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         href: '/dashboard/approvals'
       },
       {
-        label: 'Property Marketplace',
+        label: 'Resismart Housing',
         icon: <Megaphone className="w-5 h-5" />,
         children: [
           { label: 'Browse', href: '/dashboard/marketplace/browse' },
           { label: 'My Listings', href: '/dashboard/marketplace' },
+          { label: 'Leads', href: '/dashboard/marketplace/leads' },
           { label: 'Saved', href: '/dashboard/marketplace/saved' },
         ],
       },
@@ -170,11 +172,12 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         href: '/dashboard/approvals'
       },
       {
-        label: 'Property Marketplace',
+        label: 'Resismart Housing',
         icon: <Megaphone className="w-5 h-5" />,
         children: [
           { label: 'Browse', href: '/dashboard/marketplace/browse' },
           { label: 'My Listings', href: '/dashboard/marketplace' },
+          { label: 'Leads', href: '/dashboard/marketplace/leads' },
         ],
       }
     ];

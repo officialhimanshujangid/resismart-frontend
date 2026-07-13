@@ -64,11 +64,12 @@ export function CompareBadge() {
   return (
     <button
       onClick={() => router.push('/property-marketplace/compare')}
-      className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold text-white transition-all hover:scale-105"
+      aria-label={`Compare (${count})`}
+      className="relative flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-sm font-semibold text-white transition-all hover:scale-105"
       style={{ background: 'var(--mkt-primary)' }}
     >
       <Scale className="w-4 h-4" />
-      Compare
+      <span className="hidden sm:inline">Compare</span>
       <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-xs font-black flex items-center justify-center"
         style={{ background: 'var(--mkt-accent)', color: '#fff' }}>
         {count}

@@ -5,15 +5,14 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import api from '@/lib/api';
 import VerifiedBadge from '@/components/marketplace/VerifiedBadge';
-import OtpVerifyField from '@/components/common/OtpVerifyField';
+import ContactRevealModal from '@/components/marketplace/ContactRevealModal';
 import Gallery from '@/components/marketplace/Gallery';
 import ListingCard, { type ListingCardData } from '@/components/marketplace/ListingCard';
 import ReportListingModal from '@/components/marketplace/ReportListingModal';
 import { CompareButton } from '@/components/marketplace/CompareButton';
-import SkeletonCard from '@/components/marketplace/SkeletonCard';
 import {
-  ArrowLeft, MapPin, BedDouble, Ruler, Sofa, Phone, CheckCircle2,
-  Heart, Rocket, Home, ChevronRight,
+  MapPin, BedDouble, Ruler, Sofa, Phone, Eye,
+  Heart, Rocket, Home, ChevronRight, ShieldCheck,
 } from 'lucide-react';
 import { Chip } from '@mui/material';
 
@@ -31,14 +30,8 @@ export default function PublicListingDetail() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  // Lead form state
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [message, setMessage] = useState('');
-  const [otpToken, setOtpToken] = useState('');
-  const [sending, setSending] = useState(false);
-  const [revealed, setRevealed] = useState<{ name: string; phone: string | null } | null>(null);
-  const [leadError, setLeadError] = useState('');
+  // Contact reveal
+  const [showContact, setShowContact] = useState(false);
 
   // Favorite state
   const [isFavorited, setIsFavorited] = useState(false);
@@ -65,19 +58,6 @@ export default function PublicListingDetail() {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [slug]);
-
-  const sendLead = async () => {
-    setLeadError('');
-    if (!name.trim()) { setLeadError('Enter your name'); return; }
-    if (!otpToken) { setLeadError('Verify your phone number first'); return; }
-    setSending(true);
-    try {
-      const res = await api.post('/public/marketplace/leads', { listingId: listing._id, name, phone, message, otpToken });
-      setRevealed(res.data.contact);
-    } catch (err: any) {
-      setLeadError(err.response?.data?.error || 'Could not send inquiry. Please try again.');
-    } finally { setSending(false); }
-  };
 
   const toggleFavorite = async () => {
     if (favLoading) return;
@@ -244,73 +224,42 @@ export default function PublicListingDetail() {
 
         {/* Right column — sticky contact card */}
         <div className="rounded-2xl border p-5 h-fit lg:sticky lg:top-24 bg-white shadow-sm" style={{ borderColor: 'var(--mkt-line)' }}>
-          {revealed ? (
-            <div className="text-center py-4">
-              <CheckCircle2 className="w-10 h-10 mx-auto mb-2" style={{ color: 'var(--mkt-verified)' }} />
-              <p className="font-bold" style={{ color: 'var(--mkt-ink)' }}>Inquiry sent!</p>
-              <p className="text-sm mt-1" style={{ color: 'var(--mkt-ink-soft)' }}>
-                Contact <strong>{revealed.name}</strong>
+          <h3 className="font-black mb-1 text-lg" style={{ color: 'var(--mkt-ink)' }}>Contact owner</h3>
+          <p className="text-xs mb-4" style={{ color: 'var(--mkt-muted)' }}>
+            {listing.contact?.name ? `Listed by ${listing.contact.name}` : 'No sign-up needed'}
+          </p>
+
+          {/* Masked number preview */}
+          <div className="rounded-2xl px-4 py-3.5 flex items-center justify-between mb-3"
+            style={{ background: 'var(--mkt-primary-soft)' }}>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--mkt-primary-strong)' }}>Phone</p>
+              <p className="font-mono font-bold tracking-wider text-lg" style={{ color: 'var(--mkt-primary-strong)' }}>
+                {listing.contact?.phoneMasked || '••••••••'}
               </p>
-              {revealed.phone && (
-                <a href={`tel:${revealed.phone}`}
-                  className="mt-3 inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-white font-semibold text-sm"
-                  style={{ background: 'var(--mkt-primary)' }}>
-                  <Phone className="w-4 h-4" /> {revealed.phone}
-                </a>
-              )}
             </div>
-          ) : (
-            <>
-              <h3 className="font-black mb-1 text-lg" style={{ color: 'var(--mkt-ink)' }}>Interested?</h3>
-              <p className="text-xs mb-4" style={{ color: 'var(--mkt-muted)' }}>
-                Verify your phone to see the owner&apos;s contact.
+            <Phone className="w-6 h-6 opacity-40" style={{ color: 'var(--mkt-primary-strong)' }} />
+          </div>
+
+          <button
+            onClick={() => setShowContact(true)}
+            className="w-full py-3.5 rounded-2xl text-white font-bold text-sm transition-all hover:shadow-lg flex items-center justify-center gap-2"
+            style={{ background: 'var(--mkt-primary)' }}
+          >
+            <Eye className="w-4 h-4" /> View number & get callback
+          </button>
+
+          <div className="mt-4 space-y-2">
+            {[
+              'See the full number instantly',
+              'Get a callback from the owner',
+              'No login or OTP required',
+            ].map((t) => (
+              <p key={t} className="text-xs flex items-center gap-2" style={{ color: 'var(--mkt-ink-soft)' }}>
+                <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--mkt-verified)' }} /> {t}
               </p>
-              <div className="space-y-3">
-                <input
-                  value={name} onChange={(e) => setName(e.target.value)}
-                  placeholder="Your name" id="lead-name"
-                  className="w-full text-sm border rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-teal-500"
-                  style={{ borderColor: 'var(--mkt-line)' }}
-                  aria-label="Your name"
-                />
-                <input
-                  value={phone} onChange={(e) => setPhone(e.target.value)}
-                  placeholder="Your phone" id="lead-phone" type="tel"
-                  className="w-full text-sm border rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-teal-500"
-                  style={{ borderColor: 'var(--mkt-line)' }}
-                  aria-label="Your phone number"
-                />
-                {phone.replace(/\D/g, '').length >= 6 && (
-                  <OtpVerifyField
-                    channel="PHONE"
-                    target={phone}
-                    purpose="GENERIC"
-                    onVerified={(t) => setOtpToken(t)}
-                    onReset={() => setOtpToken('')}
-                  />
-                )}
-                <textarea
-                  value={message} onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Message (optional)" rows={2} id="lead-message"
-                  className="w-full text-sm border rounded-xl px-3 py-2.5 outline-none resize-none"
-                  style={{ borderColor: 'var(--mkt-line)' }}
-                  aria-label="Optional message"
-                />
-                {leadError && <p className="text-xs text-rose-600" role="alert">{leadError}</p>}
-                <button
-                  onClick={sendLead}
-                  disabled={sending || !otpToken}
-                  className="w-full py-3 rounded-xl text-white font-bold text-sm transition-all disabled:opacity-50 hover:shadow-lg hover:scale-[1.01]"
-                  style={{ background: 'var(--mkt-primary)' }}
-                >
-                  {sending ? 'Sending…' : 'Send inquiry & reveal contact'}
-                </button>
-                <p className="text-xs text-center" style={{ color: 'var(--mkt-muted)' }}>
-                  Phone verified via OTP — no spam.
-                </p>
-              </div>
-            </>
-          )}
+            ))}
+          </div>
         </div>
       </div>
 
@@ -323,6 +272,16 @@ export default function PublicListingDetail() {
           </div>
         </div>
       )}
+
+      <ContactRevealModal
+        open={showContact}
+        onClose={() => setShowContact(false)}
+        listingId={listing._id}
+        listingTitle={listing.title}
+        phoneMasked={listing.contact?.phoneMasked}
+        ownerName={listing.contact?.name}
+        onSubmitted={() => setListing((prev: any) => prev ? { ...prev, leadsCount: (prev.leadsCount || 0) + 1 } : prev)}
+      />
     </div>
   );
 }

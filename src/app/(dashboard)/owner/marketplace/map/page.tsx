@@ -65,7 +65,7 @@ export default function OwnerMarketplaceMap() {
   return (
     <div className="flex flex-col h-[calc(100vh-100px)] gap-4 animate-in fade-in duration-300">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black text-slate-800 tracking-tight">Property Marketplace Map</h1>
+        <h1 className="text-2xl font-black text-slate-800 tracking-tight">Resismart Housing Map</h1>
         <div className="text-sm text-slate-500 font-semibold">{visiblePins.length} listing{visiblePins.length !== 1 ? 's' : ''} in view</div>
       </div>
 

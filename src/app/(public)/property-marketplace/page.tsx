@@ -1,15 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
 import ListingCard, { type ListingCardData } from '@/components/marketplace/ListingCard';
 import SkeletonCard from '@/components/marketplace/SkeletonCard';
-import { Search, MapPin, Locate, SlidersHorizontal, Map, List, RefreshCw, Home } from 'lucide-react';
+import CityAutocomplete from '@/components/marketplace/CityAutocomplete';
+import { MapPin, Locate, SlidersHorizontal, Map, List, RefreshCw, Home } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
-// Leaflet must be loaded client-side only
-const BrowseMap = dynamic(() => import('@/components/marketplace/BrowseMap'), { ssr: false, loading: () => <div className="w-full h-full bg-slate-100 animate-pulse rounded-2xl" /> });
+const GoogleMarketMap = dynamic(() => import('@/components/marketplace/GoogleMarketMap'), { ssr: false, loading: () => <div className="w-full h-full bg-slate-100 animate-pulse rounded-2xl flex items-center justify-center text-slate-400">Loading Map...</div> });
 
 type SortOption = 'relevance' | 'price_asc' | 'price_desc' | 'newest';
 
@@ -27,7 +27,7 @@ const FURNISHING_LABELS = [
   { value: 'FURNISHED', label: 'Furnished' },
 ];
 
-export default function PublicBrowsePage() {
+function PublicBrowseContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -43,6 +43,9 @@ export default function PublicBrowsePage() {
     searchParams.get('lng') && searchParams.get('lat')
       ? [parseFloat(searchParams.get('lng')!), parseFloat(searchParams.get('lat')!)]
       : null
+  );
+  const [radiusKm, setRadiusKm] = useState<number>(
+    searchParams.get('radius') ? parseInt(searchParams.get('radius')!, 10) : 10
   );
 
   // Listing + pagination state
@@ -74,9 +77,13 @@ export default function PublicBrowsePage() {
     if (bedrooms) params.set('bedrooms', bedrooms);
     if (furnishing) params.set('furnishing', furnishing);
     if (sort !== 'relevance') params.set('sort', sort);
-    if (coords) { params.set('lng', String(coords[0])); params.set('lat', String(coords[1])); }
+    if (coords) { 
+      params.set('lng', String(coords[0])); 
+      params.set('lat', String(coords[1])); 
+      params.set('radius', String(radiusKm)); 
+    }
     router.replace(`/property-marketplace?${params.toString()}`, { scroll: false });
-  }, [city, kind, minPrice, maxPrice, bedrooms, furnishing, sort, coords, router]);
+  }, [city, kind, minPrice, maxPrice, bedrooms, furnishing, sort, coords, radiusKm, router]);
 
   const fetchListings = useCallback(async (cursorParam?: string | null, append = false) => {
     if (!append) setLoading(true);
@@ -88,6 +95,7 @@ export default function PublicBrowsePage() {
       if (coords || mapSearchArea) {
         const c = (mapSearchArea || coords)!;
         params.lng = c[0]; params.lat = c[1];
+        params.radiusKm = radiusKm;
       } else {
         if (city) params.city = city;
       }
@@ -111,7 +119,7 @@ export default function PublicBrowsePage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [city, kind, minPrice, maxPrice, bedrooms, furnishing, sort, coords, mapSearchArea]);
+  }, [city, kind, minPrice, maxPrice, bedrooms, furnishing, sort, coords, mapSearchArea, radiusKm]);
 
   // Debounce filter changes
   useEffect(() => {
@@ -123,7 +131,7 @@ export default function PublicBrowsePage() {
     }, 400);
     return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [city, kind, minPrice, maxPrice, bedrooms, furnishing, sort, coords, mapSearchArea]);
+  }, [city, kind, minPrice, maxPrice, bedrooms, furnishing, sort, coords, mapSearchArea, radiusKm]);
 
   // Intersection observer for infinite scroll
   useEffect(() => {
@@ -148,6 +156,15 @@ export default function PublicBrowsePage() {
 
   const clearLocation = () => { setCoords(null); setMapSearchArea(null); };
 
+  // Unified handler for map click / pin drag / "search this area".
+  // Moves the search pin and writes the reverse-geocoded locality back into the search box.
+  const handlePickLocation = useCallback((c: [number, number], label?: string) => {
+    setCoords(c);
+    setMapSearchArea(c);
+    if (label) setCity(label);
+    setNextCursor(null);
+  }, []);
+
   const toggleFavorite = async (id: string) => {
     try {
       const res = await api.post(`/marketplace/favorites/${id}`);
@@ -164,27 +181,33 @@ export default function PublicBrowsePage() {
   return (
     <div className="space-y-0">
       {/* ── Hero Search ── */}
-      <div className="rounded-3xl p-6 md:p-10 text-white relative overflow-hidden mb-6"
-        style={{ background: 'linear-gradient(120deg, var(--mkt-primary), var(--mkt-primary-strong))' }}>
-        <div className="absolute -right-20 -top-20 w-72 h-72 rounded-full bg-white/10 blur-3xl pointer-events-none" />
-        <div className="absolute -left-16 -bottom-16 w-56 h-56 rounded-full bg-black/10 blur-3xl pointer-events-none" />
-        <div className="relative">
-          <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-tight">Find your next home</h1>
-          <p className="mt-2 text-white/80 text-lg">Verified flats to rent and buy in trusted societies.</p>
+      <div className="rounded-[2.5rem] p-6 md:p-12 text-white relative mb-8 shadow-lg z-40"
+        style={{ background: 'linear-gradient(135deg, var(--mkt-primary), var(--mkt-primary-strong), #0f172a)' }}>
+        <div className="absolute inset-0 rounded-[2.5rem] overflow-hidden pointer-events-none z-0">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/3" />
+          <div className="absolute bottom-0 left-0 w-72 h-72 bg-[#0ea5e9]/20 rounded-full blur-[60px] translate-y-1/3 -translate-x-1/4" />
+        </div>
+        <div className="relative z-10 text-center md:text-left">
+          <h1 className="text-4xl md:text-6xl font-black tracking-tighter leading-tight drop-shadow-sm">Find your next home</h1>
+          <p className="mt-4 text-white/90 text-lg md:text-xl font-medium max-w-2xl">Verified flats to rent and buy in premium societies.</p>
 
           {/* Search bar */}
-          <div className="mt-6 bg-white rounded-2xl p-2 flex flex-wrap items-center gap-2 shadow-xl"
+          <div className="mt-8 bg-white/95 backdrop-blur-md rounded-2xl p-2 md:p-3 flex flex-col md:flex-row items-center gap-3 shadow-2xl mx-auto md:mx-0 max-w-3xl"
             style={{ color: 'var(--mkt-ink)' }}>
-            <div className="flex items-center gap-2 px-3 flex-1 min-w-[160px]">
-              <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
-              <input
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                placeholder="Search by city…"
-                className="py-2 w-full outline-none text-sm bg-transparent"
-                aria-label="Search by city"
-              />
-            </div>
+            <CityAutocomplete
+              value={city}
+              onChange={setCity}
+              onSelect={(c, lat, lng) => {
+                setCity(c);
+                if (lat !== undefined && lng !== undefined) {
+                  setCoords([lng, lat]);
+                  setMapSearchArea([lng, lat]);
+                } else if (!c) {
+                  clearLocation();
+                }
+                setNextCursor(null);
+              }}
+            />
             <select
               value={kind}
               onChange={(e) => setKind(e.target.value)}
@@ -218,32 +241,35 @@ export default function PublicBrowsePage() {
       </div>
 
       {/* ── Filter rail + view toggle ── */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-6 bg-white p-2 rounded-2xl border sticky top-16 z-30 shadow-sm" style={{ borderColor: 'var(--mkt-line)' }}>
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-semibold transition-colors"
-          style={{ borderColor: 'var(--mkt-line)', color: showFilters ? 'var(--mkt-primary)' : 'var(--mkt-ink-soft)', background: showFilters ? 'var(--mkt-primary-soft)' : 'white' }}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all hover:opacity-90"
+          style={{ 
+            color: showFilters ? 'white' : 'var(--mkt-ink)', 
+            background: showFilters ? 'var(--mkt-primary)' : 'var(--mkt-surface)' 
+          }}
         >
           <SlidersHorizontal className="w-4 h-4" /> Filters
         </button>
 
         <select value={sort} onChange={(e) => setSort(e.target.value as SortOption)}
-          className="text-sm px-3 py-2 rounded-xl border outline-none bg-white font-semibold"
-          style={{ borderColor: 'var(--mkt-line)', color: 'var(--mkt-ink-soft)' }}
+          className="text-sm px-4 py-2.5 rounded-xl outline-none font-semibold transition-colors focus:ring-2 focus:ring-[var(--mkt-primary-soft)]"
+          style={{ background: 'var(--mkt-surface)', color: 'var(--mkt-ink-soft)' }}
           aria-label="Sort listings">
           {Object.entries(SORT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
 
         {total !== null && (
-          <span className="text-sm ml-1" style={{ color: 'var(--mkt-muted)' }}>
+          <span className="text-sm ml-1 font-medium hidden sm:inline" style={{ color: 'var(--mkt-muted)' }}>
             {total.toLocaleString()} propert{total === 1 ? 'y' : 'ies'}
           </span>
         )}
 
-        <div className="ml-auto flex rounded-xl overflow-hidden border" style={{ borderColor: 'var(--mkt-line)' }}>
+        <div className="ml-auto flex rounded-xl overflow-hidden shadow-sm border border-slate-200">
           {(['list', 'map'] as const).map((v) => (
             <button key={v} onClick={() => setView(v)}
-              className="px-4 py-2 text-sm font-semibold flex items-center gap-1.5 transition-colors"
+              className="px-5 py-2.5 text-sm font-bold flex items-center gap-2 transition-all relative"
               style={{ background: view === v ? 'var(--mkt-primary)' : 'white', color: view === v ? '#fff' : 'var(--mkt-ink-soft)' }}
               aria-pressed={view === v}>
               {v === 'list' ? <List className="w-4 h-4" /> : <Map className="w-4 h-4" />}
@@ -287,9 +313,10 @@ export default function PublicBrowsePage() {
       )}
 
       {/* ── Main content: Split map + list ── */}
-      <div className={`${view === 'map' ? 'flex gap-4 h-[calc(100vh-280px)]' : ''}`}>
-        {/* Listing grid */}
-        <div className={`${view === 'map' ? 'w-96 flex-shrink-0 overflow-y-auto pr-2' : ''}`}>
+      <div className={`${view === 'map' ? 'flex gap-4 h-[calc(100vh-210px)] min-h-[420px] rounded-2xl overflow-hidden border' : ''}`}
+        style={view === 'map' ? { borderColor: 'var(--mkt-line)' } : undefined}>
+        {/* Listing grid — hidden on mobile in map view so the map goes full-screen */}
+        <div className={`${view === 'map' ? 'hidden md:block md:w-[380px] lg:w-[440px] flex-shrink-0 overflow-y-auto p-3' : ''}`}>
           {error && (
             <div className="text-center py-16">
               <RefreshCw className="w-8 h-8 mx-auto mb-3 opacity-40" style={{ color: 'var(--mkt-muted)' }} />
@@ -325,15 +352,16 @@ export default function PublicBrowsePage() {
               ) : (
                 <div className={`grid gap-5 ${view === 'map' ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'}`}>
                   {listings.map((l) => (
-                    <ListingCard
-                      key={l._id}
-                      listing={l}
-                      isFavorited={favIds.has(l._id)}
-                      onToggleFavorite={toggleFavorite}
-                      highlighted={highlightedId === l._id}
-                      onMouseEnter={() => setHighlightedId(l._id)}
-                      onMouseLeave={() => setHighlightedId(null)}
-                    />
+                    <div key={l._id} onMouseEnter={() => setHighlightedId(l._id)} onMouseLeave={() => setHighlightedId(null)}>
+                      <ListingCard
+                        listing={l}
+                        isFavorited={favIds.has(l._id)}
+                        onToggleFavorite={toggleFavorite}
+                        highlighted={highlightedId === l._id}
+                        onMouseEnter={() => setHighlightedId(l._id)}
+                        onMouseLeave={() => setHighlightedId(null)}
+                      />
+                    </div>
                   ))}
                 </div>
               )}
@@ -351,17 +379,27 @@ export default function PublicBrowsePage() {
 
         {/* Map panel (split view) */}
         {view === 'map' && (
-          <div className="flex-1 rounded-2xl overflow-hidden relative">
-            <BrowseMap
+          <div className="flex-1 relative w-full h-full rounded-2xl overflow-hidden shadow-inner border border-slate-200">
+            <GoogleMarketMap
               listings={listings}
               highlightedId={highlightedId}
               onHover={setHighlightedId}
               centerCoords={coords || mapSearchArea ? (coords || mapSearchArea)! : undefined}
-              onSearchArea={(c) => setMapSearchArea([c.lng, c.lat])}
+              onPickLocation={handlePickLocation}
+              distanceKm={coords || mapSearchArea ? radiusKm : undefined}
+              onDistanceChange={setRadiusKm}
             />
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+export default function PublicBrowsePage() {
+  return (
+    <Suspense fallback={<div className="p-10 text-center" style={{ color: 'var(--mkt-muted)' }}>Loading...</div>}>
+      <PublicBrowseContent />
+    </Suspense>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import api from '@/lib/api';
@@ -35,7 +35,7 @@ const ROW_DEFS = [
   { key: 'amenities', label: 'Amenities', render: (l: Listing) => l.amenities?.join(', ') || '—' },
 ];
 
-export default function ComparePage() {
+function CompareContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { ids: trayIds, toggle, clear } = useCompare();
@@ -50,7 +50,7 @@ export default function ComparePage() {
   useEffect(() => {
     if (!activeIds.length) { setListings([]); return; }
     setLoading(true);
-    api.get('/marketplace/compare', { params: { ids: activeIds.join(',') } })
+    api.get('/public/marketplace/compare', { params: { ids: activeIds.join(',') } })
       .then((res) => setListings(res.data.listings || []))
       .catch(() => setListings([]))
       .finally(() => setLoading(false));
@@ -188,5 +188,13 @@ export default function ComparePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ComparePage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center" style={{ color: 'var(--mkt-muted)' }}>Loading comparison...</div>}>
+      <CompareContent />
+    </Suspense>
   );
 }

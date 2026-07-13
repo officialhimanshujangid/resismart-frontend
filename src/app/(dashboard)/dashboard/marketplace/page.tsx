@@ -114,10 +114,10 @@ export default function MarketplacePage() {
   ) : [];
   const regularListings = listings.filter((l) => l.verification?.status !== 'PENDING_OWNER' || isAdmin);
 
-  const ListingCard = ({ l }: { l: Listing }) => {
+  const renderListingCard = (l: Listing) => {
     const cover = l.photos?.find((p) => p.isCover) || l.photos?.[0];
     return (
-      <div className="rounded-2xl border border-slate-200/70 bg-white overflow-hidden hover:shadow-md transition-shadow">
+      <div key={l._id} className="rounded-2xl border border-slate-200/70 bg-white overflow-hidden hover:shadow-md transition-shadow">
         <div className="relative h-40 bg-slate-100">
           {cover ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -167,10 +167,10 @@ export default function MarketplacePage() {
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5"><Megaphone className="w-6 h-6 text-white" /><h1 className="text-2xl font-black text-white tracking-tight">My Property Listings</h1></div>
-            <p className="text-sm text-teal-50 mt-1">Advertise your flats for rent or sale on the Property Marketplace</p>
+            <p className="text-sm text-teal-50 mt-1">Advertise your flats for rent or sale on Resismart Housing</p>
           </div>
           <Button onClick={() => router.push('/dashboard/marketplace/create')} variant="contained" startIcon={<Plus className="w-4 h-4" />}
-            sx={{ backgroundColor: '#fff', color: '#0f766e', '&:hover': { backgroundColor: '#f1f5f9' } }}>New Listing</Button>
+            sx={{ backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', boxShadow: 'none', '&:hover': { backgroundColor: 'rgba(255,255,255,0.3)', boxShadow: 'none' } }}>New Listing</Button>
         </div>
       </div>
 
@@ -227,7 +227,7 @@ export default function MarketplacePage() {
         </div>
       ) : regularListings.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {regularListings.map((l) => <ListingCard key={l._id} l={l} />)}
+          {regularListings.map((l) => renderListingCard(l))}
         </div>
       ) : null}
 

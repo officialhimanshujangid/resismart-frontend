@@ -1,9 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { Heart, ImageOff, Rocket, KeyRound, Home } from 'lucide-react';
+import { Heart, ImageOff, Rocket, KeyRound, Home, Phone } from 'lucide-react';
 import VerifiedBadge from './VerifiedBadge';
 import { CompareButton } from './CompareButton';
+import ContactRevealModal from './ContactRevealModal';
 
 interface Photo { url: string; isCover?: boolean }
 
@@ -39,10 +41,11 @@ export default function ListingCard({
   listing: l, isFavorited = false, onToggleFavorite, highlighted, onMouseEnter, onMouseLeave,
 }: Props) {
   const cover = l.photos?.find((p) => p.isCover) || l.photos?.[0];
+  const [showContact, setShowContact] = useState(false);
 
   return (
     <div
-      className={`group rounded-2xl bg-white overflow-hidden border transition-all duration-200 ${highlighted ? 'shadow-xl ring-2 scale-[1.01]' : 'hover:shadow-xl'}`}
+      className={`group rounded-2xl bg-white overflow-hidden border transition-all duration-200 flex flex-col ${highlighted ? 'shadow-xl ring-2 scale-[1.01]' : 'hover:shadow-xl'}`}
       style={{
         borderColor: highlighted ? 'var(--mkt-primary)' : 'var(--mkt-line)',
         ...(highlighted ? { '--tw-ring-color': 'var(--mkt-primary)' } as React.CSSProperties : {}),
@@ -118,6 +121,24 @@ export default function ListingCard({
           </div>
         </div>
       </Link>
+
+      {/* Contact CTA — sibling of the Link so it never triggers navigation */}
+      <div className="px-4 pb-4 mt-auto">
+        <button
+          onClick={() => setShowContact(true)}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold border transition-colors hover:shadow-sm"
+          style={{ borderColor: 'var(--mkt-primary)', color: 'var(--mkt-primary-strong)', background: 'var(--mkt-primary-soft)' }}
+        >
+          <Phone className="w-4 h-4" /> View Contact
+        </button>
+      </div>
+
+      <ContactRevealModal
+        open={showContact}
+        onClose={() => setShowContact(false)}
+        listingId={l._id}
+        listingTitle={l.title}
+      />
     </div>
   );
 }
