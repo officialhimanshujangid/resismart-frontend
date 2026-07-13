@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
-import { useAuth } from '@/context/AuthContext';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 import VerifiedBadge from '@/components/marketplace/VerifiedBadge';
 import BoostDialog from '@/components/marketplace/BoostDialog';
@@ -21,6 +20,8 @@ interface Listing {
   pricePaise: number; priceType: string; photos: { url: string; isCover: boolean }[];
   verification?: { status: string; method?: string }; boost?: { active: boolean };
   viewsCount: number; leadsCount: number; city?: string;
+  /** Server-computed: true iff the current user owns this listing's flat and it awaits owner approval. */
+  canApprove?: boolean;
 }
 
 const money = (p: number) => `₹${(p / 100).toLocaleString('en-IN')}`;
@@ -28,9 +29,7 @@ const statusColor: Record<string, any> = { DRAFT: 'default', ACTIVE: 'success', 
 
 export default function MarketplacePage() {
   const router = useRouter();
-  const { activeProfile } = useAuth();
   const { showToast, confirm } = useToastConfirm();
-  const isAdmin = activeProfile?.role === 'SOCIETY_ADMIN' || activeProfile?.role === 'SOCIETY_COMMITTEE';
 
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,11 +107,12 @@ export default function MarketplacePage() {
   const openMenu = (e: React.MouseEvent<HTMLElement>, l: Listing) => { setMenuEl(e.currentTarget); setMenuFor(l); };
   const closeMenu = () => { setMenuEl(null); setMenuFor(null); };
 
-  // Listings that need the current user's approval as flat owner
-  const pendingApproval = !isAdmin ? listings.filter(
-    (l) => l.verification?.status === 'PENDING_OWNER' && l.scope === 'FLAT'
-  ) : [];
-  const regularListings = listings.filter((l) => l.verification?.status !== 'PENDING_OWNER' || isAdmin);
+  // Only listings the CURRENT user can actually approve (server-verified: they own the
+  // flat and it's PENDING_OWNER). This is the authoritative flag — the old heuristic
+  // (role !== admin) wrongly surfaced admin-created listings for flats the viewer didn't
+  // own, producing an "Approve" button that always 403'd.
+  const pendingApproval = listings.filter((l) => l.canApprove);
+  const regularListings = listings.filter((l) => !l.canApprove);
 
   const renderListingCard = (l: Listing) => {
     const cover = l.photos?.find((p) => p.isCover) || l.photos?.[0];
@@ -174,8 +174,9 @@ export default function MarketplacePage() {
         </div>
       </div>
 
-      {/* ── Pending Owner Approval section (only visible to flat owners, not admins) ── */}
-      {!isAdmin && pendingApproval.length > 0 && (
+      {/* ── Pending Owner Approval section — shown only for listings the viewer actually
+             owns the flat for (server `canApprove`), regardless of role. ── */}
+      {pendingApproval.length > 0 && (
         <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 space-y-3">
           <div className="flex items-center gap-2">
             <Bell className="w-5 h-5 text-amber-600" />

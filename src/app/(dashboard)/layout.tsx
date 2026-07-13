@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import ProtectedRoute from '../../components/auth/ProtectedRoute';
 import { Sidebar } from '../../components/layout/Sidebar';
 import { Header } from '../../components/layout/Header';
+import BrandLoader from '../../components/common/BrandLoader';
 import { RefreshCw } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -36,14 +37,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Scrollable Dashboard Viewport */}
             <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 bg-slate-100/50">
               <div className="max-w-7xl mx-auto space-y-6">
-                <React.Suspense fallback={
-                  <div className="flex items-center justify-center p-12">
-                    <div className="relative w-12 h-12">
-                      <div className="absolute inset-0 rounded-full border-4 border-[#0a5bd7]/20 animate-pulse" />
-                      <div className="absolute inset-0 rounded-full border-4 border-t-[#0a5bd7] border-r-transparent border-b-transparent border-l-transparent animate-spin" />
-                    </div>
-                  </div>
-                }>
+                <React.Suspense fallback={<BrandLoader variant="inline" />}>
                   {children}
                 </React.Suspense>
               </div>

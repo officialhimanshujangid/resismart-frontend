@@ -97,13 +97,12 @@ function OwnerDashboard() {
             </div>
             <div className="flex-1">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={metrics.chartData.map((d: any) => ({ ...d, Expense: Number((d.revenue * 0.4).toFixed(2)) }))} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <BarChart data={metrics.chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                  <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}/>
-                  <Bar dataKey="revenue" fill="#407BFF" radius={[4, 4, 4, 4]} barSize={12} name="Revenue" />
-                  <Bar dataKey="Expense" fill="#FF9F43" radius={[4, 4, 4, 4]} barSize={12} name="Expense" />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v: number) => `₹${Number(v).toLocaleString('en-IN')}`} width={70} />
+                  <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} formatter={(v: any) => [`₹${Number(v).toLocaleString('en-IN')}`, 'Revenue']} />
+                  <Bar dataKey="revenue" fill="#407BFF" radius={[4, 4, 4, 4]} barSize={14} name="Revenue" />
                 </BarChart>
               </ResponsiveContainer>
             </div>

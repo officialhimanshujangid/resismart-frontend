@@ -143,21 +143,19 @@ body {
   background-color: #f1f5f9;
 }
 
-/* Global Structural Text Capitalization */
-h1, h2, h3, h4, h5, h6,
-button, .MuiButton-root,
-th, .MuiTableCell-head,
-td, .MuiTableCell-body,
-label, .MuiInputLabel-root,
-input[type="text"],
-textarea,
-.MuiInputBase-input:not([type="email"]):not([type="password"]),
+/* Opt-in capitalization.
+   NOTE: a previous global rule force-capitalized nearly all text — including table
+   cells, labels and text inputs — which mangled proper nouns, codes, IDs and whatever
+   the user typed. It was removed. Text now renders exactly as stored/authored.
+   Apply `.capitalize-text` (or Tailwind `capitalize`) deliberately where a heading or
+   label should be title-cased, and never on user-entered data. */
 .capitalize-text {
-  text-transform: capitalize !important;
+  text-transform: capitalize;
 }
 
-input[type="email"],
-input[type="password"],
-input[type="url"] {
-  text-transform: none !important;
+/* Column headers are the one place a uniform Title Case reads well and is data-safe
+   (they're static labels, not user data). Scoped to head cells only. */
+th.MuiTableCell-head,
+thead .MuiTableCell-root {
+  text-transform: capitalize;
 }
