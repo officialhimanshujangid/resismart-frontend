@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
+import { useAuth } from '@/context/AuthContext';
 import OtpVerifyField from '@/components/common/OtpVerifyField';
 import BrandLoader from '@/components/common/BrandLoader';
 import {
@@ -12,6 +13,7 @@ import {
   Card, CardContent, Typography, Grid, Chip, Tabs, Tab, Switch, FormControlLabel,
   Menu, Divider,
 } from '@mui/material';
+import FlatLifecycleManager, { FlatLifecycleManagerHandle } from '@/components/flats/FlatLifecycleManager';
 import {
   ArrowLeft, UserPlus, Trash2, ShieldCheck, User, KeyRound, Home, UserCheck,
   Plus, DoorOpen, Store, LogIn, History, Crown, MoreVertical, Pencil, FileText,
@@ -74,12 +76,13 @@ const EVENT_TONE: Record<string, string> = {
   OWNER_MOVED_IN: 'bg-emerald-100 text-emerald-700', MARKED_VACANT: 'bg-slate-100 text-slate-600',
 };
 
-type DialogKind = null | 'add' | 'edit' | 'doc' | 'tenancyDoc' | 'rent' | 'sell' | 'endTenancy' | 'moveIn' | 'vacant' | 'history';
+type DialogKind = null | 'add' | 'edit' | 'doc' | 'tenancyDoc' | 'history' | 'rent' | 'endTenancy';
 
 export default function FlatDetailsPage() {
   const params = useParams();
   const router = useRouter();
   const { showToast, confirm } = useToastConfirm();
+  const { activeProfile } = useAuth();
   const flatId = params.flatId as string;
 
   const [flat, setFlat] = useState<Flat | null>(null);
@@ -89,6 +92,8 @@ export default function FlatDetailsPage() {
   const [tenancy, setTenancy] = useState<Tenancy | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'household' | 'tenancy' | 'timeline'>('household');
+
+  const lifecycleRef = useRef<FlatLifecycleManagerHandle>(null);
 
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -108,9 +113,6 @@ export default function FlatDetailsPage() {
   const [tDocKind, setTDocKind] = useState('AGREEMENT');
   const [tDocFile, setTDocFile] = useState<File | null>(null);
   const tFileRef = useRef<HTMLInputElement>(null);
-  // Rent-out agreement upload
-  const [rentDocFile, setRentDocFile] = useState<File | null>(null);
-  const rentFileRef = useRef<HTMLInputElement>(null);
 
   // Edit-member form
   const [editTarget, setEditTarget] = useState<Member | null>(null);
@@ -125,13 +127,9 @@ export default function FlatDetailsPage() {
   const [docFile, setDocFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // lifecycle dialogs
-  const [rentTerms, setRentTerms] = useState({ rentAmount: '', securityDeposit: '', startDate: today(), endDate: plusMonths(11) });
-  type TenantRow = { name: string; email: string; phone: string; relationship: string; isHead: boolean };
-  const [tenants, setTenants] = useState<TenantRow[]>([{ name: '', email: '', phone: '', relationship: 'TENANT', isHead: true }]);
-  const [sell, setSell] = useState({ name: '', email: '', phone: '', saleAmount: '', saleDate: today() });
-  const [actionDate, setActionDate] = useState(today());
+  // lifecycle dialogs (history only)
   const [hist, setHist] = useState({ type: 'OWNERSHIP', partyName: '', startDate: '', endDate: '', saleAmount: '', rentAmount: '', notes: '' });
+  const [actionDate, setActionDate] = useState(today());
 
   const fetchData = useCallback(async () => {
     try {
@@ -164,8 +162,6 @@ export default function FlatDetailsPage() {
     setEditTarget(null); setEditEmailToken(null); setEditPhoneToken(null);
     setDocTarget(null); setDocLabel(''); setDocKind('ID_PROOF'); setDocFile(null);
     setTDocLabel(''); setTDocKind('AGREEMENT'); setTDocFile(null);
-    setRentDocFile(null); setTenants([{ name: '', email: '', phone: '', relationship: 'TENANT', isHead: true }]);
-    setRentTerms({ rentAmount: '', securityDeposit: '', startDate: today(), endDate: plusMonths(11) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   };
 
@@ -270,41 +266,7 @@ export default function FlatDetailsPage() {
     catch { showToast('Failed to open document', 'error'); }
   };
 
-  // ── Lifecycle actions ─────────────────────────────────────────────────────
-  const setTenant = (i: number, patch: Partial<TenantRow>) => setTenants(tenants.map((t, j) => j === i ? { ...t, ...patch } : t));
-  const setHeadTenant = (i: number) => setTenants(tenants.map((t, j) => ({ ...t, isHead: j === i })));
-
-  const submitRent = async () => {
-    const filled = tenants.filter((t) => t.name.trim());
-    if (!filled.length) return showToast('Add at least one tenant', 'error');
-    const head = filled.find((t) => t.isHead) || filled[0];
-    if (!head.email.trim() && !head.phone.trim()) return showToast('The primary tenant needs an email or phone', 'error');
-    setSubmitting(true);
-    try {
-      let documents: any[] = [];
-      if (rentDocFile) {
-        const fd = new FormData(); fd.append('file', rentDocFile);
-        const up = await api.post('/upload/document', fd);
-        documents = [{ kind: 'AGREEMENT', label: rentDocFile.name, key: up.data.key, url: up.data.url }];
-      }
-      const res = await api.post(`/societies/flats/${flatId}/rent-out`, {
-        tenants: filled.map((t) => ({ name: t.name, email: t.email || undefined, phone: t.phone || undefined, relationship: t.relationship, isHead: t === head })),
-        rentAmount: Number(rentTerms.rentAmount || 0), securityDeposit: Number(rentTerms.securityDeposit || 0),
-        startDate: rentTerms.startDate, endDate: rentTerms.endDate, documents,
-      });
-      showToast(res?.data?.message || 'Flat rented out', 'success');
-      setRentDocFile(null); closeDialog(); fetchData();
-    } catch (err: any) {
-      showToast(err.response?.data?.error || err.response?.data?.errors?.[0]?.message || 'Action failed', 'error');
-    } finally { setSubmitting(false); }
-  };
-  const submitSell = () => {
-    if (!sell.name.trim() || (!sell.email.trim() && !sell.phone.trim())) return showToast('Buyer name and an email or phone are required', 'error');
-    call(() => api.post(`/societies/flats/${flatId}/sell`, {
-      buyer: { name: sell.name, email: sell.email, phone: sell.phone },
-      saleAmount: sell.saleAmount ? Number(sell.saleAmount) : undefined, saleDate: sell.saleDate,
-    }), 'Ownership transferred');
-  };
+  // ── Lifecycle actions (history) ─────────────────────────────────────────────────────
   const submitHistory = () => {
     if (!hist.partyName.trim() || !hist.startDate) return showToast('Party name and start date are required', 'error');
     call(() => api.post(`/societies/flats/${flatId}/tenures`, {
@@ -325,6 +287,10 @@ export default function FlatDetailsPage() {
   const tenantHousehold = active.filter((m) => m.householdType === 'TENANT');
   const head = active.find((m) => m.isHead);
   const money2 = (p?: number) => (p || p === 0) ? `₹${(p / 100).toLocaleString('en-IN')}` : '—';
+
+  const isAdmin = activeProfile?.role === 'SOCIETY_ADMIN' || activeProfile?.role === 'SOCIETY_COMMITTEE';
+  const canManage = !isAdmin;
+  const canSell = !isAdmin || !flat.ownerUserId;
 
   const actionBtn = (label: string, icon: React.ReactNode, onClick: () => void, color = 'primary') => (
     <Button variant="outlined" size="small" startIcon={icon} onClick={onClick} color={color as any} sx={{ textTransform: 'none', borderRadius: 2 }}>{label}</Button>
@@ -358,7 +324,7 @@ export default function FlatDetailsPage() {
           )}
         </div>
       </div>
-      <IconButton size="small" onClick={(e) => { setMenuEl(e.currentTarget); setMenuFor(m); }}><MoreVertical className="w-4 h-4" /></IconButton>
+      {canManage && <IconButton size="small" onClick={(e) => { setMenuEl(e.currentTarget); setMenuFor(m); }}><MoreVertical className="w-4 h-4" /></IconButton>}
     </div>
   );
 
@@ -381,12 +347,7 @@ export default function FlatDetailsPage() {
 
       {/* Lifecycle actions */}
       <div className="flex flex-wrap gap-2">
-        {status !== 'RENTED' && actionBtn('Rent Out', <KeyRound className="w-4 h-4" />, () => setDialog('rent'))}
-        {status === 'RENTED' && actionBtn('End Tenancy', <DoorOpen className="w-4 h-4" />, () => { setActionDate(today()); setDialog('endTenancy'); }, 'warning')}
-        {actionBtn('Sell', <Store className="w-4 h-4" />, () => setDialog('sell'))}
-        {flat.ownerUserId && status !== 'OWNER_OCCUPIED' && actionBtn('Owner Move In', <LogIn className="w-4 h-4" />, () => { setActionDate(today()); setDialog('moveIn'); })}
-        {status !== 'VACANT' && actionBtn('Mark Vacant', <DoorOpen className="w-4 h-4" />, () => { setActionDate(today()); setDialog('vacant'); })}
-        {actionBtn('Add History', <History className="w-4 h-4" />, () => setDialog('history'), 'inherit')}
+        <FlatLifecycleManager ref={lifecycleRef} flatId={flat._id} flatStatus={status} onComplete={fetchData} canManage={canManage} canSell={canSell} variant="button" />
       </div>
 
       <Grid container spacing={4}>
@@ -427,7 +388,7 @@ export default function FlatDetailsPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Owner household ({ownerHousehold.length})</p>
-                <Button variant="contained" size="small" onClick={() => openAddMember('OWNER')} startIcon={<UserPlus className="w-4 h-4" />} sx={{ backgroundColor: '#0a5bd7', '&:hover': { backgroundColor: '#094cb0' } }}>Add Member</Button>
+                {canManage && <Button variant="contained" size="small" onClick={() => openAddMember('OWNER')} startIcon={<UserPlus className="w-4 h-4" />} sx={{ backgroundColor: '#0a5bd7', '&:hover': { backgroundColor: '#094cb0' } }}>Add Member</Button>}
               </div>
               {ownerHousehold.length === 0 && <p className="text-sm text-slate-400 py-4 text-center">No owner-household members.</p>}
               {ownerHousehold.map((m) => <div key={m._id}>{MemberCard(m)}</div>)}
@@ -465,7 +426,7 @@ export default function FlatDetailsPage() {
                     <p className="text-slate-700 font-bold text-sm">This flat is not rented</p>
                     <p className="text-slate-400 text-xs">Use “Rent Out” to move a tenant in. The owner household stays as owner of record.</p>
                   </div>
-                  {status !== 'RENTED' && <Button variant="contained" startIcon={<KeyRound className="w-4 h-4" />} onClick={() => setDialog('rent')} sx={{ backgroundColor: '#0a5bd7', mt: 1 }}>Rent Out</Button>}
+                  {canManage && status !== 'RENTED' && <Button variant="contained" startIcon={<KeyRound className="w-4 h-4" />} onClick={() => lifecycleRef.current?.openAction('rent')} sx={{ backgroundColor: '#0a5bd7', mt: 1 }}>Rent Out</Button>}
                 </div>
               ) : (
                 <>
@@ -481,7 +442,7 @@ export default function FlatDetailsPage() {
                           </div>
                         </div>
                       </div>
-                      <Button size="small" variant="outlined" color="warning" startIcon={<DoorOpen className="w-4 h-4" />} onClick={() => { setActionDate(today()); setDialog('endTenancy'); }} sx={{ textTransform: 'none' }}>End Tenancy</Button>
+                      {canManage && <Button size="small" variant="outlined" color="warning" startIcon={<DoorOpen className="w-4 h-4" />} onClick={() => lifecycleRef.current?.openAction('endTenancy')} sx={{ textTransform: 'none' }}>End Tenancy</Button>}
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
                       <div><p className="text-[10px] text-slate-400 font-bold uppercase">Monthly rent</p><p className="font-bold text-slate-800">{money2(tenancy.rentAmountPaise)}</p></div>
@@ -495,7 +456,7 @@ export default function FlatDetailsPage() {
                   <div className="rounded-2xl border border-slate-200/70 p-4">
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tenancy documents</p>
-                      <Button size="small" startIcon={<Upload className="w-4 h-4" />} onClick={() => setDialog('tenancyDoc')} sx={{ textTransform: 'none' }}>Upload</Button>
+                      {canManage && <Button size="small" startIcon={<Upload className="w-4 h-4" />} onClick={() => setDialog('tenancyDoc')} sx={{ textTransform: 'none' }}>Upload</Button>}
                     </div>
                     {tenancy.documents.length === 0 ? (
                       <p className="text-xs text-slate-400 py-2">No documents yet — add the rental agreement, tenant KYC, or police verification.</p>
@@ -514,7 +475,7 @@ export default function FlatDetailsPage() {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tenant household</p>
-                      <Button size="small" variant="outlined" startIcon={<UserPlus className="w-4 h-4" />} onClick={() => openAddMember('TENANT')} sx={{ textTransform: 'none' }}>Add tenant member</Button>
+                      {canManage && <Button size="small" variant="outlined" startIcon={<UserPlus className="w-4 h-4" />} onClick={() => openAddMember('TENANT')} sx={{ textTransform: 'none' }}>Add tenant member</Button>}
                     </div>
                     <div className="space-y-2">
                       {tenantHousehold.map((m) => <div key={m._id}>{MemberCard(m)}</div>)}
@@ -685,96 +646,6 @@ export default function FlatDetailsPage() {
         <DialogActions className="p-4 border-t border-slate-100">
           <Button onClick={closeDialog} className="text-slate-600">Cancel</Button>
           <Button onClick={submitTenancyDoc} variant="contained" disabled={submitting} sx={{ backgroundColor: '#0a5bd7' }}>{submitting ? <CircularProgress size={22} color="inherit" /> : 'Upload'}</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Rent out — a tenant household: one or more co-tenants + family */}
-      <Dialog open={dialog === 'rent'} onClose={closeDialog} maxWidth="sm" fullWidth slotProps={{ paper: { className: 'rounded-2xl' } }}>
-        <DialogTitle className="font-bold border-b border-slate-100">Rent Out Flat</DialogTitle>
-        <DialogContent className="pt-6 space-y-4">
-          <p className="text-xs text-slate-500 -mt-1">Rent to a <strong>family</strong>, a group of <strong>friends sharing</strong>, or a mix. Add each person: mark co-tenants as <strong>Co-tenant / Friend</strong> and relatives with their relationship. The person marked <strong>Primary</strong> is the lead tenant on the agreement and needs a contact.</p>
-          <div className="flex items-center justify-between">
-            <Typography variant="caption" className="font-bold text-slate-500 uppercase">Tenant household ({tenants.length})</Typography>
-            <Button size="small" startIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => setTenants([...tenants, { name: '', email: '', phone: '', relationship: 'TENANT', isHead: false }])}>Add person</Button>
-          </div>
-          {tenants.map((t, i) => (
-            <div key={i} className={`rounded-xl border p-3 space-y-2 ${t.isHead ? 'border-blue-200 bg-blue-50/40' : 'border-slate-200/70'}`}>
-              <div className="flex items-center gap-2">
-                <TextField label="Full name" size="small" fullWidth value={t.name} onChange={(e) => setTenant(i, { name: e.target.value })} />
-                <FormControl size="small" sx={{ minWidth: 150 }}>
-                  <Select value={t.relationship} onChange={(e) => setTenant(i, { relationship: e.target.value })}>
-                    <MenuItem value="TENANT">Co-tenant / Friend</MenuItem>
-                    {FAMILY_RELATIONS.map((r) => <MenuItem key={r} value={r}>{cap(r)}</MenuItem>)}
-                  </Select>
-                </FormControl>
-                {tenants.length > 1 && <IconButton size="small" onClick={() => { const next = tenants.filter((_, j) => j !== i); if (!next.some((x) => x.isHead) && next[0]) next[0].isHead = true; setTenants([...next]); }}><Trash2 className="w-4 h-4 text-rose-500" /></IconButton>}
-              </div>
-              <div className="flex gap-2">
-                <TextField label="Email" size="small" fullWidth value={t.email} onChange={(e) => setTenant(i, { email: e.target.value })} />
-                <TextField label="Phone" size="small" fullWidth value={t.phone} onChange={(e) => setTenant(i, { phone: e.target.value })} />
-              </div>
-              <FormControlLabel control={<Switch size="small" checked={t.isHead} onChange={() => setHeadTenant(i)} />} label={<span className="text-xs font-semibold">Primary tenant (lead on agreement)</span>} />
-            </div>
-          ))}
-          <Divider />
-          <div className="flex gap-2">
-            <TextField label="Monthly Rent (₹)" type="number" fullWidth size="small" value={rentTerms.rentAmount} onChange={(e) => setRentTerms({ ...rentTerms, rentAmount: e.target.value })} />
-            <TextField label="Security Deposit (₹)" type="number" fullWidth size="small" value={rentTerms.securityDeposit} onChange={(e) => setRentTerms({ ...rentTerms, securityDeposit: e.target.value })} />
-          </div>
-          <div className="flex gap-2">
-            <TextField label="Start" type="date" fullWidth size="small" slotProps={{ inputLabel: { shrink: true } }} value={rentTerms.startDate} onChange={(e) => setRentTerms({ ...rentTerms, startDate: e.target.value })} />
-            <TextField label="End" type="date" fullWidth size="small" slotProps={{ inputLabel: { shrink: true } }} value={rentTerms.endDate} onChange={(e) => setRentTerms({ ...rentTerms, endDate: e.target.value })} />
-          </div>
-          <Typography variant="caption" className="font-bold text-slate-500 uppercase">Rental agreement (optional)</Typography>
-          <input ref={rentFileRef} type="file" accept="application/pdf,image/*" hidden onChange={(e) => setRentDocFile(e.target.files?.[0] || null)} />
-          <Button variant="outlined" fullWidth startIcon={<Upload className="w-4 h-4" />} onClick={() => rentFileRef.current?.click()} sx={{ textTransform: 'none' }}>
-            {rentDocFile ? rentDocFile.name : 'Attach agreement (PDF/image)'}
-          </Button>
-        </DialogContent>
-        <DialogActions className="p-4 border-t border-slate-100">
-          <Button onClick={closeDialog} className="text-slate-600">Cancel</Button>
-          <Button onClick={submitRent} variant="contained" disabled={submitting} sx={{ backgroundColor: '#0a5bd7' }}>{submitting ? <CircularProgress size={22} color="inherit" /> : 'Rent Out'}</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Sell */}
-      <Dialog open={dialog === 'sell'} onClose={closeDialog} maxWidth="sm" fullWidth slotProps={{ paper: { className: 'rounded-2xl' } }}>
-        <DialogTitle className="font-bold border-b border-slate-100">Sell / Transfer Ownership</DialogTitle>
-        <DialogContent className="pt-6 space-y-4">
-          <p className="text-xs text-slate-500 -mt-1">The current owner and any sitting tenants are moved out, and the buyer becomes the new owner.</p>
-          <TextField label="Buyer Name" fullWidth size="small" value={sell.name} onChange={(e) => setSell({ ...sell, name: e.target.value })} />
-          <div className="flex gap-2">
-            <TextField label="Email" fullWidth size="small" value={sell.email} onChange={(e) => setSell({ ...sell, email: e.target.value })} />
-            <TextField label="Phone" fullWidth size="small" value={sell.phone} onChange={(e) => setSell({ ...sell, phone: e.target.value })} />
-          </div>
-          <div className="flex gap-2">
-            <TextField label="Sale Amount (₹)" type="number" fullWidth size="small" value={sell.saleAmount} onChange={(e) => setSell({ ...sell, saleAmount: e.target.value })} />
-            <TextField label="Sale Date" type="date" fullWidth size="small" slotProps={{ inputLabel: { shrink: true } }} value={sell.saleDate} onChange={(e) => setSell({ ...sell, saleDate: e.target.value })} />
-          </div>
-        </DialogContent>
-        <DialogActions className="p-4 border-t border-slate-100">
-          <Button onClick={closeDialog} className="text-slate-600">Cancel</Button>
-          <Button onClick={submitSell} variant="contained" color="primary" disabled={submitting}>{submitting ? <CircularProgress size={22} color="inherit" /> : 'Transfer'}</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Simple date actions */}
-      <Dialog open={dialog === 'endTenancy' || dialog === 'moveIn' || dialog === 'vacant'} onClose={closeDialog} maxWidth="xs" fullWidth slotProps={{ paper: { className: 'rounded-2xl' } }}>
-        <DialogTitle className="font-bold border-b border-slate-100">
-          {dialog === 'endTenancy' ? 'End Tenancy' : dialog === 'moveIn' ? 'Owner Move In' : 'Mark Vacant'}
-        </DialogTitle>
-        <DialogContent className="pt-6 space-y-3">
-          <p className="text-sm text-slate-500">
-            {dialog === 'endTenancy' ? 'Close the active tenancy and move the tenant out.' : dialog === 'moveIn' ? 'Record the owner moving into this flat.' : 'End current occupancy and mark the flat vacant.'}
-          </p>
-          <TextField label="Effective Date" type="date" fullWidth size="small" slotProps={{ inputLabel: { shrink: true } }} value={actionDate} onChange={(e) => setActionDate(e.target.value)} />
-        </DialogContent>
-        <DialogActions className="p-4 border-t border-slate-100">
-          <Button onClick={closeDialog} className="text-slate-600">Cancel</Button>
-          <Button variant="contained" disabled={submitting} onClick={() => {
-            const path = dialog === 'endTenancy' ? 'end-tenancy' : dialog === 'moveIn' ? 'move-in' : 'set-vacant';
-            call(() => api.post(`/societies/flats/${flatId}/${path}`, { date: actionDate }));
-          }}>{submitting ? <CircularProgress size={22} color="inherit" /> : 'Confirm'}</Button>
         </DialogActions>
       </Dialog>
 

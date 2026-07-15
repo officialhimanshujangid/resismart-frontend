@@ -29,8 +29,8 @@ export default function LoginPage() {
   const [info, setInfo] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Default flow is passwordless OTP; owner/staff can switch to password.
-  const [mode, setMode] = useState<'otp' | 'password'>('otp');
+  // Default flow changed to password.
+  const [mode, setMode] = useState<'otp' | 'password'>('password');
   const [otpStep, setOtpStep] = useState<'identifier' | 'code'>('identifier');
   const [otpCode, setOtpCode] = useState('');
   const [devCode, setDevCode] = useState<string | null>(null);

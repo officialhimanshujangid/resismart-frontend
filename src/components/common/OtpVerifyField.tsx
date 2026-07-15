@@ -84,14 +84,14 @@ export default function OtpVerifyField({ channel, target, purpose, onVerified, o
 
   if (verified) {
     return (
-      <div className="flex items-center gap-1.5 text-emerald-600 text-xs font-bold mt-1">
+      <div className="flex items-center gap-1.5 text-emerald-600 text-xs font-bold mt-2 mb-3">
         <CheckCircle2 className="w-4 h-4" /> {isEmail ? 'Email verified' : 'Phone verified'}
       </div>
     );
   }
 
   return (
-    <div className="mt-2 space-y-2">
+    <div className="mt-2 mb-3 space-y-2">
       {!sent ? (
         <button
           type="button"

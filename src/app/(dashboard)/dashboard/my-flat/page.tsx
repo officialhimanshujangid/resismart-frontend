@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 import OtpVerifyField from '@/components/common/OtpVerifyField';
@@ -14,6 +14,7 @@ import {
   Home, ShieldCheck, Crown, CircleUser, Users, Activity, Mail, Phone, CalendarDays,
   MapPin, Ruler, UserPlus, FileText, KeyRound,
 } from 'lucide-react';
+import FlatLifecycleManager, { FlatLifecycleManagerHandle } from '@/components/flats/FlatLifecycleManager';
 
 interface Member {
   _id: string; name: string; email: string | null; phone: string | null;
@@ -54,6 +55,8 @@ export default function MyFlatPage() {
   const [loading, setLoading] = useState(true);
   const [notFlat, setNotFlat] = useState(false);
   const [tab, setTab] = useState<'household' | 'timeline'>('household');
+
+  const lifecycleRef = useRef<FlatLifecycleManagerHandle>(null);
 
   const [addOpen, setAddOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -136,11 +139,12 @@ export default function MyFlatPage() {
           <div className="flex items-center gap-2">
             <Chip label={flat.status.replace('_', ' ')} color={flat.status === 'RENTED' ? 'warning' : flat.status === 'OWNER_OCCUPIED' ? 'success' : 'default'} />
             <Chip label={me.isOwner ? 'You are the owner' : `You: ${cap(me.relationship || 'Member')}`} sx={{ fontWeight: 700, bgcolor: me.isOwner ? '#dbeafe' : '#f1f5f9', color: me.isOwner ? '#1d4ed8' : '#475569' }} />
+            {me.isOwner && <FlatLifecycleManager ref={lifecycleRef} flatId={flat._id} flatStatus={flat.status} onComplete={fetchData} variant="icon" />}
           </div>
         </div>
       </div>
 
-      {tenancy && (
+      {tenancy ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center"><KeyRound className="w-5 h-5" /></div>
@@ -155,7 +159,14 @@ export default function MyFlatPage() {
             <div><p className="text-[10px] text-slate-400 font-bold uppercase">Occupants</p><p className="font-bold text-slate-800">{active.filter((m) => m.householdType === 'TENANT').length}</p></div>
           </div>
         </div>
-      )}
+      ) : me.isOwner ? (
+        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/50 p-5 flex flex-col items-center justify-center text-center">
+          <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 mb-3"><KeyRound className="w-5 h-5" /></div>
+          <p className="font-bold text-slate-700">This flat is not rented</p>
+          <p className="text-xs text-slate-500 mb-3">Use “Rent Out” to move a tenant in. You will stay as owner of record.</p>
+          <Button variant="contained" size="small" startIcon={<KeyRound className="w-4 h-4" />} onClick={() => lifecycleRef.current?.openAction('rent')} sx={{ backgroundColor: '#0a5bd7' }}>Rent Out</Button>
+        </div>
+      ) : null}
 
       <Grid container spacing={4}>
         <Grid size={{ xs: 12, md: 4 }}>

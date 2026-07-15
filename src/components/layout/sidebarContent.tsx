@@ -165,6 +165,21 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         label: 'Billing & Subscription',
         icon: <DollarSign className="w-5 h-5" />,
         href: '/dashboard/billing'
+      },
+      {
+        label: 'Finance Management',
+        icon: <Landmark className="w-5 h-5" />,
+        children: [
+          { label: 'Invoices', href: '/dashboard/finance/invoices' },
+          { label: 'Collections', href: '/dashboard/finance/collections' },
+          { label: 'Confirmations', href: '/dashboard/finance/confirmations' },
+          { label: 'Expenses', href: '/dashboard/finance/expenses' },
+          { label: 'Reports', href: '/dashboard/finance/reports' },
+          { label: 'Charge Heads', href: '/dashboard/finance/charge-heads' },
+          { label: 'Funds', href: '/dashboard/finance/funds' },
+          { label: 'Settlement', href: '/dashboard/finance/settlement' },
+          { label: 'Settings', href: '/dashboard/finance/settings' }
+        ]
       }
     ];
   }
@@ -191,6 +206,11 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
           { label: 'My Listings', href: '/dashboard/marketplace' },
           { label: 'Leads', href: '/dashboard/marketplace/leads' },
         ],
+      },
+      {
+        label: 'My Bills',
+        icon: <DollarSign className="w-5 h-5" />,
+        href: '/dashboard/finance/my-bills'
       }
     ];
   }
