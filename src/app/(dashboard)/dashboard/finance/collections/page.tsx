@@ -29,13 +29,16 @@ const STATUS: Record<string, string> = {
 };
 
 export default function CollectionsPage() {
-  const { showToast, confirm } = useToastConfirm();
+  const { showToast } = useToastConfirm();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState('');
+  const [reasonTarget, setReasonTarget] = useState<{ receipt: Receipt; action: 'reject' | 'bounce' } | null>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const [recOpen, setRecOpen] = useState(false);
   const [flats, setFlats] = useState<FlatOpt[]>([]);
@@ -84,12 +87,30 @@ export default function CollectionsPage() {
     finally { setSaving(false); }
   };
 
-  const act = async (r: Receipt, action: 'confirm' | 'reject' | 'bounce' | 'deposit') => {
-    let body: any = {};
-    if (action === 'reject') { const reason = window.prompt('Reason for rejection?'); if (!reason) return; body = { rejectionReason: reason }; }
-    if (action === 'bounce') { const ok = await confirm({ title: 'Bounce / reverse receipt', message: `Reverse ${r.receiptNumber}? Its invoices will reopen.`, confirmText: 'Reverse', severity: 'error' }); if (!ok) return; }
-    try { await api.post(`/finance/society/collections/receipts/${r._id}/${action}`, body); showToast(`Receipt ${action}ed`, 'success'); load(); }
-    catch (e: any) { showToast(e.response?.data?.error || `Failed to ${action}`, 'error'); }
+  const DONE: Record<string, string> = {
+    confirm: 'Receipt confirmed', reject: 'Receipt rejected',
+    bounce: 'Receipt bounced', deposit: 'Cheque deposited to bank',
+  };
+
+  const post = async (r: Receipt, action: 'confirm' | 'reject' | 'bounce' | 'deposit', body: any = {}) => {
+    try { await api.post(`/finance/society/collections/receipts/${r._id}/${action}`, body); showToast(DONE[action], 'success'); load(); return true; }
+    catch (e: any) { showToast(e.response?.data?.error || `Failed to ${action}`, 'error'); return false; }
+  };
+
+  const act = (r: Receipt, action: 'confirm' | 'reject' | 'bounce' | 'deposit') => {
+    // Reject and bounce both need a written reason — collect it in the dialog below.
+    if (action === 'reject' || action === 'bounce') { setReasonTarget({ receipt: r, action }); setReason(''); return; }
+    post(r, action);
+  };
+
+  const submitReason = async () => {
+    if (!reasonTarget || !reason.trim()) return;
+    const { receipt, action } = reasonTarget;
+    setBusy(true);
+    // The two endpoints name the field differently: reject wants `rejectionReason`, bounce wants `reason`.
+    const ok = await post(receipt, action, action === 'reject' ? { rejectionReason: reason } : { reason });
+    setBusy(false);
+    if (ok) { setReasonTarget(null); setReason(''); }
   };
 
   const pdf = async (r: Receipt) => {
@@ -193,6 +214,34 @@ export default function CollectionsPage() {
         <DialogActions className="p-5 pt-0 gap-2">
           <Button onClick={() => setRecOpen(false)} variant="outlined" fullWidth className="py-2.5 font-bold">Cancel</Button>
           <Button onClick={submitRecord} disabled={saving} variant="contained" fullWidth className="py-2.5 font-bold">{saving ? <CircularProgress size={18} color="inherit" /> : 'Record'}</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reject / bounce reason */}
+      <Dialog open={!!reasonTarget} onClose={() => setReasonTarget(null)} slots={{ transition: Zoom }} maxWidth="xs" fullWidth>
+        <DialogTitle className="flex justify-between items-center pr-3">
+          <span>{reasonTarget?.action === 'bounce' ? 'Bounce / reverse receipt' : 'Reject payment'}</span>
+          <IconButton onClick={() => setReasonTarget(null)} size="small"><X className="w-5 h-5" /></IconButton>
+        </DialogTitle>
+        <DialogContent className="space-y-2">
+          {reasonTarget?.action === 'bounce' && (
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-xs text-red-800">
+              Reversing {reasonTarget.receipt.receiptNumber} will reopen the invoices it paid.
+            </div>
+          )}
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Reason *</span>
+          <TextField
+            hiddenLabel fullWidth multiline rows={3}
+            placeholder={reasonTarget?.action === 'bounce' ? 'Why is this receipt being reversed?' : 'Why is this payment being rejected?'}
+            value={reason} onChange={e => setReason(e.target.value)}
+            slotProps={reasonTarget?.action === 'bounce' ? { htmlInput: { maxLength: 300 } } : undefined}
+          />
+        </DialogContent>
+        <DialogActions className="p-5 pt-0 gap-2">
+          <Button onClick={() => setReasonTarget(null)} variant="outlined" fullWidth className="py-2.5 font-bold">Cancel</Button>
+          <Button onClick={submitReason} disabled={!reason.trim() || busy} variant="contained" color="error" fullWidth className="py-2.5 font-bold">
+            {busy ? <CircularProgress size={18} color="inherit" /> : reasonTarget?.action === 'bounce' ? 'Reverse' : 'Reject'}
+          </Button>
         </DialogActions>
       </Dialog>
     </div>

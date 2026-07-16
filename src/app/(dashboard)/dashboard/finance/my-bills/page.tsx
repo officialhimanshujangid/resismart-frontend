@@ -8,14 +8,16 @@ import {
   TableCell, TableContainer, Zoom,
 } from '@mui/material';
 import { IndianRupee, Download, X, Wallet, ExternalLink, Info } from 'lucide-react';
+import UpiQrPanel from '@/components/finance/UpiQrPanel';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 
 interface Invoice { _id: string; invoiceNumber: string; billingPeriod: string; dueDate: string; grandTotalDuePaise: number; outstandingPaise: number; status: string; }
 interface Receipt { _id: string; receiptNumber: string; mode: string; amountPaise: number; status: string; receiptDate: string; }
 interface StatementRow { date: string; voucherNumber: string; voucherType: string; narration?: string; debitPaise: number; creditPaise: number; balancePaise: number; }
-interface Outstanding { totalOutstandingPaise: number; advanceBalancePaise: number; onlineEnabled: boolean; upiId?: string; }
+interface Outstanding { totalOutstandingPaise: number; advanceBalancePaise: number; onlineEnabled: boolean; upiId?: string; upiPayeeName?: string; flatLabel?: string; }
 
 const rupees = (p?: number) => `₹${((p || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
 const STATUS: Record<string, string> = {
   PAID: 'bg-emerald-50 text-emerald-700 border-emerald-100',
   PARTIALLY_PAID: 'bg-blue-50 text-blue-700 border-blue-100',
@@ -39,6 +41,7 @@ export default function MyBillsPage() {
   const [payTab, setPayTab] = useState<'ONLINE' | 'OFFLINE'>('ONLINE');
   const [offline, setOffline] = useState({ mode: 'UPI', amount: '', referenceNote: '' });
   const [processing, setProcessing] = useState(false);
+  const offlineAmountPaise = Math.max(0, Math.round(parseFloat(offline.amount || '0') * 100) || 0);
 
   const load = useCallback(async () => {
     try {
@@ -205,7 +208,14 @@ export default function MyBillsPage() {
             ) : <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-sm text-amber-800 flex gap-2"><Info className="w-5 h-5 shrink-0" />Online payment isn't enabled by your society. Please report an offline payment.</div>
           ) : (
             <div className="space-y-3">
-              {summary?.upiId && <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-600">Pay to society UPI: <span className="font-bold text-slate-800">{summary.upiId}</span></div>}
+              {summary?.upiId && offline.mode === 'UPI' && (
+                <UpiQrPanel
+                  upiId={summary.upiId}
+                  payeeName={summary.upiPayeeName}
+                  amountPaise={offlineAmountPaise}
+                  note={summary.flatLabel ? `Maintenance ${summary.flatLabel}` : 'Maintenance'}
+                />
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Mode</span>
                   <FormControl fullWidth size="small"><Select value={offline.mode} onChange={e => setOffline(o => ({ ...o, mode: e.target.value }))}>{['UPI', 'BANK_TRANSFER', 'CASH', 'CHEQUE'].map(m => <MenuItem key={m} value={m}>{m.replace(/_/g, ' ')}</MenuItem>)}</Select></FormControl>
@@ -215,7 +225,12 @@ export default function MyBillsPage() {
                 </div>
               </div>
               <TextField hiddenLabel fullWidth size="small" placeholder="Reference / UTR / note" value={offline.referenceNote} onChange={e => setOffline(o => ({ ...o, referenceNote: e.target.value }))} />
-              <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-800 flex gap-2"><Info className="w-4 h-4 shrink-0 mt-0.5" />Marked as "Verifying" until your committee confirms receipt.</div>
+              <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-800 flex gap-2">
+                <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                {offline.mode === 'UPI' && summary?.upiId
+                  ? 'Paying by QR doesn’t update your dues on its own. After paying, submit the UTR here — your dues clear once the committee confirms it.'
+                  : 'Marked as “Verifying” until your committee confirms receipt.'}
+              </div>
             </div>
           )}
         </DialogContent>

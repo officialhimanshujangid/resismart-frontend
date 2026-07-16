@@ -1,15 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, IModulePermission } from '../../context/AuthContext';
 import { cn } from '../../lib/utils';
+import api from '../../lib/api';
 import {
   ChevronRight,
   X
 } from 'lucide-react';
-import { getSidebarLinks, SidebarLink } from './sidebarContent';
+import { getSidebarLinks, filterLinksByFinanceModules, SidebarLink } from './sidebarContent';
 import { ResiSmartLogo } from './ResiSmartLogo';
 
 interface SidebarProps {
@@ -22,6 +23,46 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [expandedMenus, setExpandedMenus] = useState<Record<number, string>>({});
+  const [pendingConfirmations, setPendingConfirmations] = useState(0);
+  // null = not answered yet. Distinct from an empty list, which is a real answer
+  // meaning "this society uses none of the optional modules".
+  const [financeModules, setFinanceModules] = useState<string[] | null>(null);
+
+  const role = activeProfile?.role;
+
+  // Society admins land here with an empty Confirmations inbox most days; a badge saves
+  // them from clicking in to find out. One fetch once the role is known — no polling.
+  useEffect(() => {
+    if (!role?.startsWith('SOCIETY_')) { setPendingConfirmations(0); return; }
+    let cancelled = false;
+    api.get('/finance/society/collections/pending')
+      .then(res => { if (!cancelled) setPendingConfirmations(Array.isArray(res.data) ? res.data.length : 0); })
+      .catch(() => { if (!cancelled) setPendingConfirmations(0); }); // Stay silent on error — the badge is a hint, not a feature.
+    return () => { cancelled = true; };
+  }, [role]);
+
+  // Which optional finance screens this society uses. On failure we show
+  // everything: a menu that is too long is a nuisance, a menu missing the screen
+  // you need is a fault.
+  const loadFinanceModules = useCallback(() => {
+    if (!role?.startsWith('SOCIETY_')) { setFinanceModules(null); return undefined; }
+    let cancelled = false;
+    api.get('/finance/society/modules')
+      .then(res => { if (!cancelled) setFinanceModules(Array.isArray(res.data?.modules) ? res.data.modules : null); })
+      .catch(() => { if (!cancelled) setFinanceModules(null); });
+    return () => { cancelled = true; };
+  }, [role]);
+
+  useEffect(() => loadFinanceModules(), [loadFinanceModules]);
+
+  // The menu has to change the moment the admin saves, not on their next hard
+  // reload — a toggle that appears to do nothing reads as broken. Same window-event
+  // pattern the API layer already uses for 'auth-logout'.
+  useEffect(() => {
+    const refetch = () => { loadFinanceModules(); };
+    window.addEventListener('finance-modules-changed', refetch);
+    return () => window.removeEventListener('finance-modules-changed', refetch);
+  }, [loadFinanceModules]);
 
   const toggleMenu = (label: string, depth: number) => {
     setExpandedMenus(prev => {
@@ -60,15 +101,37 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
 
   const rawLinks = activeProfile ? getSidebarLinks(activeProfile.role) : [];
 
-  const links: SidebarLink[] =
+  const permissionFiltered: SidebarLink[] =
     activeProfile?.role === 'SYSTEM_EMPLOYEE' && employeePermissions
       ? filterLinksByPermissions(rawLinks, employeePermissions)
       : rawLinks;
+
+  const links: SidebarLink[] = financeModules
+    ? filterLinksByFinanceModules(permissionFiltered, financeModules)
+    : permissionFiltered;
+
+  const badgeCounts: Record<string, number> = { financePendingConfirmations: pendingConfirmations };
+
+  // A collapsed group hides its children, so roll descendant counts up to the parent —
+  // otherwise the badge only appears once you've already clicked in to look.
+  const badgeFor = (link: SidebarLink): number =>
+    (link.badgeKey ? badgeCounts[link.badgeKey] || 0 : 0) +
+    (link.children || []).reduce((sum, child) => sum + badgeFor(child), 0);
+
+  const renderBadge = (count: number, onDarkActiveRow: boolean) => (
+    <span className={cn(
+      "shrink-0 min-w-[20px] px-1.5 py-0.5 rounded-full text-[10px] font-black text-center leading-4",
+      onDarkActiveRow ? "bg-white text-blue-700" : "bg-red-500 text-white"
+    )}>
+      {count > 99 ? '99+' : count}
+    </span>
+  );
 
   const renderSidebarLinks = (items: SidebarLink[], depth = 0) => {
     return items.map((link, idx) => {
       const hasChildren = link.children && link.children.length > 0;
       const isExpanded = expandedMenus[depth] === link.label;
+      const badgeCount = badgeFor(link);
 
       let isActive = false;
       if (link.href) {
@@ -132,12 +195,16 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
                 )}
                 <span className="truncate tracking-wide">{link.label}</span>
               </div>
-              <ChevronRight
-                className={cn(
-                  "w-4 h-4 text-slate-400 transition-transform duration-300",
-                  isExpanded ? "rotate-90 text-blue-700" : "group-hover:translate-x-0.5 group-hover:text-slate-600"
-                )}
-              />
+              <div className="flex items-center gap-2">
+                {/* Once expanded the child carries its own badge — showing both is just noise. */}
+                {badgeCount > 0 && !isExpanded && renderBadge(badgeCount, false)}
+                <ChevronRight
+                  className={cn(
+                    "w-4 h-4 text-slate-400 transition-transform duration-300",
+                    isExpanded ? "rotate-90 text-blue-700" : "group-hover:translate-x-0.5 group-hover:text-slate-600"
+                  )}
+                />
+              </div>
             </button>
           ) : (
             <Link
@@ -169,7 +236,8 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
                   isActive && depth === 0 ? "bg-white scale-125" : isActive ? "bg-blue-700 scale-125" : "bg-slate-300 group-hover:bg-blue-600 group-hover:scale-125"
                 )} />
               )}
-              <span className="truncate tracking-wide">{link.label}</span>
+              <span className="truncate tracking-wide flex-1">{link.label}</span>
+              {badgeCount > 0 && renderBadge(badgeCount, isActive && depth === 0)}
             </Link>
           )}
 

@@ -32,6 +32,7 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [blocks, setBlocks] = useState<{ _id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
@@ -40,23 +41,29 @@ export default function ExpensesPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ vendorId: '', description: '', paymentMode: 'BANK', lines: [{ expenseAccountCode: '', amount: '' }] });
+  const [form, setForm] = useState({ vendorId: '', description: '', paymentMode: 'BANK', lines: [{ expenseAccountCode: '', amount: '', blockId: '' }] });
 
   const [vendorOpen, setVendorOpen] = useState(false);
   const [newVendor, setNewVendor] = useState({ name: '', tdsApplicable: false, tdsRatePercent: '' });
+
+  const [rejectTarget, setRejectTarget] = useState<Expense | null>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams({ page: String(page + 1), pageSize: String(pageSize) });
       if (status) params.append('status', status);
-      const [ex, ve, ac] = await Promise.all([
+      const [ex, ve, ac, bl] = await Promise.all([
         api.get(`/finance/society/expenses?${params.toString()}`),
         api.get('/finance/society/vendors'),
         api.get('/finance/society/ledger/accounts?type=EXPENSE'),
+        api.get('/societies/blocks'),
       ]);
       setExpenses(ex.data.expenses); setTotal(ex.data.pagination?.total ?? 0);
       setVendors(ve.data); setAccounts(ac.data);
+      setBlocks(Array.isArray(bl.data) ? bl.data : (bl.data?.blocks ?? []));
     } catch (e: any) { showToast(e.response?.data?.error || 'Failed to load expenses', 'error'); }
     finally { setLoading(false); }
   }, [page, pageSize, status, showToast]);
@@ -69,21 +76,36 @@ export default function ExpensesPage() {
         vendorId: form.vendorId || undefined,
         description: form.description || undefined,
         paymentMode: form.paymentMode,
-        lineItems: form.lines.filter(l => l.expenseAccountCode && l.amount).map(l => ({ expenseAccountCode: l.expenseAccountCode, amountPaise: Math.round(parseFloat(l.amount) * 100) })),
+        lineItems: form.lines.filter(l => l.expenseAccountCode && l.amount).map(l => ({
+          expenseAccountCode: l.expenseAccountCode,
+          amountPaise: Math.round(parseFloat(l.amount) * 100),
+          blockId: l.blockId || undefined,
+        })),
       });
       showToast('Expense created', 'success'); setCreateOpen(false);
-      setForm({ vendorId: '', description: '', paymentMode: 'BANK', lines: [{ expenseAccountCode: '', amount: '' }] });
+      setForm({ vendorId: '', description: '', paymentMode: 'BANK', lines: [{ expenseAccountCode: '', amount: '', blockId: '' }] });
       load();
     } catch (e: any) { showToast(e.response?.data?.error || 'Failed to create expense', 'error'); }
     finally { setSaving(false); }
   };
 
+  const post = async (e: Expense, action: 'approve' | 'pay' | 'reject', body: any = {}) => {
+    try { await api.post(`/finance/society/expenses/${e._id}/${action}`, body); showToast(`Expense ${action}d`, 'success'); load(); return true; }
+    catch (err: any) { showToast(err.response?.data?.error || `Failed to ${action}`, 'error'); return false; }
+  };
+
   const act = async (e: Expense, action: 'approve' | 'pay' | 'reject') => {
-    let body: any = {};
-    if (action === 'reject') { const r = window.prompt('Reason?'); if (!r) return; body = { rejectionReason: r }; }
+    if (action === 'reject') { setRejectTarget(e); setReason(''); return; }
     if (action === 'pay') { const ok = await confirm({ title: 'Record payment', message: `Mark ${e.voucherNumber} as paid (${rupees(e.netPayablePaise)})?`, confirmText: 'Pay' }); if (!ok) return; }
-    try { await api.post(`/finance/society/expenses/${e._id}/${action}`, body); showToast(`Expense ${action}d`, 'success'); load(); }
-    catch (err: any) { showToast(err.response?.data?.error || `Failed to ${action}`, 'error'); }
+    post(e, action);
+  };
+
+  const submitReject = async () => {
+    if (!rejectTarget || !reason.trim()) return;
+    setBusy(true);
+    const ok = await post(rejectTarget, 'reject', { rejectionReason: reason });
+    setBusy(false);
+    if (ok) { setRejectTarget(null); setReason(''); }
   };
 
   const addVendor = async () => {
@@ -168,15 +190,30 @@ export default function ExpensesPage() {
           <TextField hiddenLabel fullWidth size="small" placeholder="Description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
           <div className="space-y-2">
             <div className="flex items-center justify-between"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Expense lines</span>
-              <Button size="small" onClick={() => setForm(f => ({ ...f, lines: [...f.lines, { expenseAccountCode: '', amount: '' }] }))} startIcon={<Plus className="w-3 h-3" />}>Add line</Button>
+              <Button size="small" onClick={() => setForm(f => ({ ...f, lines: [...f.lines, { expenseAccountCode: '', amount: '', blockId: '' }] }))} startIcon={<Plus className="w-3 h-3" />}>Add line</Button>
             </div>
             {form.lines.map((l, i) => (
               <div key={i} className="flex gap-2 items-center">
                 <FormControl size="small" className="flex-1"><Select displayEmpty value={l.expenseAccountCode} onChange={e => setLine(i, { expenseAccountCode: e.target.value })}><MenuItem value="" disabled>Account</MenuItem>{accounts.map(a => <MenuItem key={a._id} value={a.code}>{a.code} · {a.name}</MenuItem>)}</Select></FormControl>
+                {/* Only worth asking once there is more than one wing to choose between. */}
+                {blocks.length > 1 && (
+                  <FormControl size="small" className="w-40">
+                    <Select displayEmpty value={l.blockId} onChange={e => setLine(i, { blockId: e.target.value })}>
+                      <MenuItem value=""><span className="text-slate-400">Common</span></MenuItem>
+                      {blocks.map(b => <MenuItem key={b._id} value={b._id}>{b.name}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                )}
                 <TextField hiddenLabel size="small" type="number" placeholder="₹" value={l.amount} onChange={e => setLine(i, { amount: e.target.value })} className="w-32" />
                 {form.lines.length > 1 && <IconButton size="small" onClick={() => setForm(f => ({ ...f, lines: f.lines.filter((_, idx) => idx !== i) }))}><Trash2 className="w-4 h-4 text-slate-400" /></IconButton>}
               </div>
             ))}
+            {blocks.length > 1 && (
+              <p className="text-[10px] text-slate-400 leading-relaxed">
+                Leave a line as <b>Common</b> unless the cost belongs to one wing alone — a lift repair or a wing&apos;s
+                own water pump. Tagged lines appear in the Wing-wise report.
+              </p>
+            )}
           </div>
         </DialogContent>
         <DialogActions className="p-5 pt-0 gap-2">
@@ -201,6 +238,24 @@ export default function ExpensesPage() {
           </div>
         </DialogContent>
         <DialogActions className="p-5 pt-0"><Button onClick={() => setVendorOpen(false)} variant="contained" fullWidth className="py-2.5 font-bold">Done</Button></DialogActions>
+      </Dialog>
+
+      {/* Reject expense */}
+      <Dialog open={!!rejectTarget} onClose={() => setRejectTarget(null)} slots={{ transition: Zoom }} maxWidth="xs" fullWidth>
+        <DialogTitle className="flex justify-between items-center pr-3">
+          <span>Reject {rejectTarget?.voucherNumber}</span>
+          <IconButton onClick={() => setRejectTarget(null)} size="small"><X className="w-5 h-5" /></IconButton>
+        </DialogTitle>
+        <DialogContent className="space-y-2">
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Reason *</span>
+          <TextField hiddenLabel fullWidth multiline rows={3} placeholder="Why is this expense being rejected?" value={reason} onChange={e => setReason(e.target.value)} />
+        </DialogContent>
+        <DialogActions className="p-5 pt-0 gap-2">
+          <Button onClick={() => setRejectTarget(null)} variant="outlined" fullWidth className="py-2.5 font-bold">Cancel</Button>
+          <Button onClick={submitReject} disabled={!reason.trim() || busy} variant="contained" color="error" fullWidth className="py-2.5 font-bold">
+            {busy ? <CircularProgress size={18} color="inherit" /> : 'Reject'}
+          </Button>
+        </DialogActions>
       </Dialog>
     </div>
   );

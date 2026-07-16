@@ -5,12 +5,13 @@ import api from '@/lib/api';
 import {
   Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions, IconButton,
   CircularProgress, TableContainer, Table, TableHead, TableBody, TableRow, TableCell,
-  Paper, Zoom, FormControl, Select, MenuItem, Grid, Switch, FormControlLabel, Chip,
+  TablePagination, Paper, Zoom, FormControl, Select, MenuItem, Grid, Switch, FormControlLabel, Chip,
 } from '@mui/material';
 import { Plus, Pencil, Trash2, X, Tag } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 
 interface FlatSize { _id: string; name: string; }
+interface Fund { _id: string; name: string; category: string; ledgerAccountCode?: string; }
 interface PerSize { flatSizeId: string; label: string; amountPaise: number; }
 interface ChargeHead {
   _id: string;
@@ -19,11 +20,14 @@ interface ChargeHead {
   uniformAmountPaise?: number; perSizeAmounts?: PerSize[];
   ratePerSqftPaise?: number; areaBasis?: string;
   perUnitRatePaise?: number; meterType?: string;
+  quantityKey?: string;
   percentOf?: string; percentValue?: number;
   applicability?: { occupancy?: string[] };
   billTo?: string;
   gstApplicable?: boolean; gstRatePercent?: number; sacCode?: string;
+  countsTowardRwaExemption?: boolean;
   incomeAccountCode?: string;
+  fundId?: string;
   isRecurring?: boolean; isActive?: boolean; sortOrder?: number;
 }
 
@@ -33,9 +37,12 @@ const PRICING_MODES = [
   { v: 'PER_FLAT_SIZE', l: 'Per flat size' },
   { v: 'PER_SQFT', l: 'Per sq. ft. (area based)' },
   { v: 'METERED', l: 'Metered (per unit)' },
+  { v: 'PER_QUANTITY', l: 'Per quantity (e.g. 2 cars × ₹500)' },
   { v: 'PERCENTAGE', l: 'Percentage of another head' },
   { v: 'FLAT_ADHOC', l: 'Fixed one-time / ad-hoc' },
 ];
+/** Keys societies commonly count. Free text is still allowed — this is a nudge, not a list. */
+const QUANTITY_KEY_SUGGESTIONS = ['parkingSlots', 'twoWheelerSlots', 'shops', 'servantRooms'];
 const OCCUPANCY = ['ALL', 'OWNER_OCCUPIED', 'RENTED', 'VACANT'];
 
 const rupees = (paise?: number) => ((paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -43,30 +50,37 @@ const rupees = (paise?: number) => ((paise || 0) / 100).toLocaleString('en-IN', 
 const blankForm = () => ({
   code: '', name: '', description: '', category: 'MAINTENANCE', pricingMode: 'UNIFORM',
   uniformAmount: '', perSizeAmounts: [] as { flatSizeId: string; label: string; amount: string }[],
-  ratePerSqft: '', areaBasis: 'CARPET', perUnitRate: '', meterType: '',
-  percentOf: 'MAINTENANCE', percentValue: '', occupancy: 'ALL', billTo: 'OWNER',
-  gstApplicable: false, gstRatePercent: '', sacCode: '', isRecurring: true, isActive: true, sortOrder: '100',
+  ratePerSqft: '', areaBasis: 'CARPET', perUnitRate: '', meterType: '', quantityKey: '',
+  percentOf: 'MAINTENANCE', percentValue: '', occupancy: ['ALL'] as string[], billTo: 'OWNER',
+  fundId: '',
+  gstApplicable: false, gstRatePercent: '', sacCode: '', countsTowardRwaExemption: true,
+  isRecurring: true, isActive: true, sortOrder: '100',
 });
 
 export default function ChargeHeadsPage() {
   const { showToast, confirm } = useToastConfirm();
   const [heads, setHeads] = useState<ChargeHead[]>([]);
   const [sizes, setSizes] = useState<FlatSize[]>([]);
+  const [funds, setFunds] = useState<Fund[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(blankForm());
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
 
   const load = async () => {
     try {
       setLoading(true);
-      const [h, s] = await Promise.all([
+      const [h, s, f] = await Promise.all([
         api.get('/finance/society/charge-heads'),
         api.get('/flat-sizes'),
+        api.get('/finance/society/funds'),
       ]);
       setHeads(h.data);
       setSizes(s.data.flatSizes || []);
+      setFunds(f.data || []);
     } catch (e: any) {
       showToast(e.response?.data?.error || 'Failed to load charge heads', 'error');
     } finally { setLoading(false); }
@@ -88,11 +102,16 @@ export default function ChargeHeadsPage() {
       areaBasis: h.areaBasis || 'CARPET',
       perUnitRate: h.perUnitRatePaise ? String(h.perUnitRatePaise / 100) : '',
       meterType: h.meterType || '',
+      quantityKey: h.quantityKey || '',
       percentOf: h.percentOf || 'MAINTENANCE', percentValue: h.percentValue ? String(h.percentValue) : '',
-      occupancy: h.applicability?.occupancy?.[0] || 'ALL',
+      // Keep the whole array — collapsing to [0] here silently dropped every
+      // occupancy beyond the first on save.
+      occupancy: h.applicability?.occupancy?.length ? h.applicability.occupancy : ['ALL'],
       billTo: h.billTo || 'OWNER',
+      fundId: h.fundId || '',
       gstApplicable: !!h.gstApplicable, gstRatePercent: h.gstRatePercent ? String(h.gstRatePercent) : '',
-      sacCode: h.sacCode || '', isRecurring: h.isRecurring ?? true, isActive: h.isActive ?? true,
+      sacCode: h.sacCode || '', countsTowardRwaExemption: h.countsTowardRwaExemption ?? true,
+      isRecurring: h.isRecurring ?? true, isActive: h.isActive ?? true,
       sortOrder: String(h.sortOrder ?? 100),
     });
     setModalOpen(true);
@@ -104,16 +123,19 @@ export default function ChargeHeadsPage() {
     const p: any = {
       code: form.code.trim(), name: form.name.trim(), description: form.description || undefined,
       category: form.category, pricingMode: form.pricingMode,
-      applicability: { occupancy: [form.occupancy] }, billTo: form.billTo,
+      applicability: { occupancy: form.occupancy.length ? form.occupancy : ['ALL'] }, billTo: form.billTo,
+      fundId: form.fundId || '', // '' unlinks; the backend falls back to the category default
       gstApplicable: form.gstApplicable,
       gstRatePercent: form.gstApplicable && form.gstRatePercent ? Number(form.gstRatePercent) : undefined,
       sacCode: form.gstApplicable && form.sacCode ? form.sacCode : undefined,
+      countsTowardRwaExemption: form.countsTowardRwaExemption,
       isRecurring: form.isRecurring, isActive: form.isActive, sortOrder: Number(form.sortOrder) || 100,
     };
     if (form.pricingMode === 'UNIFORM' || form.pricingMode === 'FLAT_ADHOC') p.uniformAmountPaise = toPaise(form.uniformAmount);
     if (form.pricingMode === 'PER_FLAT_SIZE') p.perSizeAmounts = form.perSizeAmounts.filter(r => r.flatSizeId).map(r => ({ flatSizeId: r.flatSizeId, label: r.label, amountPaise: toPaise(r.amount) }));
     if (form.pricingMode === 'PER_SQFT') { p.ratePerSqftPaise = toPaise(form.ratePerSqft); p.areaBasis = form.areaBasis; }
     if (form.pricingMode === 'METERED') { p.perUnitRatePaise = toPaise(form.perUnitRate); p.meterType = form.meterType || undefined; }
+    if (form.pricingMode === 'PER_QUANTITY') { p.perUnitRatePaise = toPaise(form.perUnitRate); p.quantityKey = form.quantityKey.trim() || undefined; }
     if (form.pricingMode === 'PERCENTAGE') { p.percentOf = form.percentOf; p.percentValue = Number(form.percentValue) || 0; }
     return p;
   };
@@ -147,10 +169,16 @@ export default function ChargeHeadsPage() {
       case 'PER_FLAT_SIZE': return `${h.perSizeAmounts?.length || 0} size tiers`;
       case 'PER_SQFT': return `₹${rupees(h.ratePerSqftPaise)}/sqft`;
       case 'METERED': return `₹${rupees(h.perUnitRatePaise)}/unit`;
+      case 'PER_QUANTITY': return `₹${rupees(h.perUnitRatePaise)} × ${h.quantityKey || '—'}`;
       case 'PERCENTAGE': return `${h.percentValue}% of ${h.percentOf}`;
       default: return '—';
     }
   };
+
+  // The endpoint returns every head in one array, so paginate client-side.
+  // Clamp the page so deleting the last row on the last page can't strand us on an empty view.
+  const safePage = Math.min(page, Math.max(0, Math.ceil(heads.length / pageSize) - 1));
+  const pagedHeads = heads.slice(safePage * pageSize, safePage * pageSize + pageSize);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -183,7 +211,7 @@ export default function ChargeHeadsPage() {
               </TableRow>
             </TableHead>
             <TableBody className="bg-white">
-              {heads.map((h) => (
+              {pagedHeads.map((h) => (
                 <TableRow key={h._id}>
                   <TableCell className="font-semibold text-slate-500">{h.sortOrder ?? 100}</TableCell>
                   <TableCell className="font-mono text-xs font-bold text-slate-700">{h.code}</TableCell>
@@ -204,6 +232,13 @@ export default function ChargeHeadsPage() {
             </TableBody>
           </Table>
         )}
+        <TablePagination
+          component="div" count={heads.length} page={safePage}
+          onPageChange={(_, p) => setPage(p)}
+          rowsPerPage={pageSize}
+          onRowsPerPageChange={e => { setPageSize(parseInt(e.target.value, 10)); setPage(0); }}
+          rowsPerPageOptions={[10, 25, 50, 100]}
+        />
       </TableContainer>
 
       <Dialog open={modalOpen} onClose={() => setModalOpen(false)} slots={{ transition: Zoom }} maxWidth="sm" fullWidth scroll="paper">
@@ -261,6 +296,36 @@ export default function ChargeHeadsPage() {
                   </Grid>
                 </>
               )}
+              {form.pricingMode === 'PER_QUANTITY' && (
+                <>
+                  <Grid size={{ xs: 6 }}>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Rate for each one (₹)</span>
+                    <TextField hiddenLabel fullWidth size="small" type="number" placeholder="500" value={form.perUnitRate} onChange={e => set({ perUnitRate: e.target.value })} />
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">What is being counted</span>
+                    <TextField
+                      hiddenLabel fullWidth size="small" placeholder="parkingSlots"
+                      value={form.quantityKey}
+                      onChange={e => set({ quantityKey: e.target.value.replace(/[^A-Za-z0-9_]/g, '') })}
+                      slotProps={{ htmlInput: { list: 'quantity-key-suggestions' } }}
+                    />
+                    <datalist id="quantity-key-suggestions">
+                      {QUANTITY_KEY_SUGGESTIONS.map(k => <option key={k} value={k} />)}
+                    </datalist>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <p className="text-[11px] text-slate-500 -mt-2">
+                      Each flat is billed this rate for however many it has. The count lives on the flat itself — set it under
+                      Flats → Edit → Billable counts, using this exact key. A flat with no count for
+                      <b> {form.quantityKey || 'this key'}</b> is not billed at all.
+                      {form.perUnitRate && form.quantityKey && (
+                        <> A flat with 2 would be billed <b>₹{rupees(toPaise(form.perUnitRate) * 2)}</b>.</>
+                      )}
+                    </p>
+                  </Grid>
+                </>
+              )}
               {form.pricingMode === 'PERCENTAGE' && (
                 <>
                   <Grid size={{ xs: 6 }}>
@@ -295,7 +360,20 @@ export default function ChargeHeadsPage() {
 
               <Grid size={{ xs: 6 }}>
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Applies to</span>
-                <FormControl fullWidth size="small"><Select value={form.occupancy} onChange={e => set({ occupancy: e.target.value })}>{OCCUPANCY.map(o => <MenuItem key={o} value={o}>{o.replace(/_/g, ' ')}</MenuItem>)}</Select></FormControl>
+                <FormControl fullWidth size="small">
+                  <Select
+                    multiple
+                    value={form.occupancy}
+                    onChange={e => {
+                      const v = (typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value) as string[];
+                      // "All flats" is exclusive — pairing it with a specific occupancy is meaningless.
+                      set({ occupancy: v.includes('ALL') && v.length > 1 ? v.filter(o => o !== 'ALL') : v.length ? v : ['ALL'] });
+                    }}
+                    renderValue={(v) => (v as string[]).map(o => o.replace(/_/g, ' ')).join(', ')}
+                  >
+                    {OCCUPANCY.map(o => <MenuItem key={o} value={o}>{o === 'ALL' ? 'All flats' : o.replace(/_/g, ' ')}</MenuItem>)}
+                  </Select>
+                </FormControl>
               </Grid>
               <Grid size={{ xs: 6 }}>
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Bill to</span>
@@ -303,7 +381,32 @@ export default function ChargeHeadsPage() {
               </Grid>
 
               <Grid size={{ xs: 12 }}>
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Collects into fund</span>
+                <FormControl fullWidth size="small">
+                  <Select value={form.fundId} onChange={e => set({ fundId: e.target.value })} displayEmpty>
+                    <MenuItem value="">Not a fund — treat as regular income</MenuItem>
+                    {funds.map(f => <MenuItem key={f._id} value={f._id}>{f.name}{f.ledgerAccountCode ? ` · ${f.ledgerAccountCode}` : ''}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {form.fundId
+                    ? 'Money billed under this head goes into the fund’s balance instead of income — this is how a fund gets collected.'
+                    : 'Pick a fund to make this head collect into it. Leave blank for ordinary income.'}
+                </p>
+              </Grid>
+
+              <Grid size={{ xs: 12 }}>
                 <FormControlLabel control={<Switch checked={form.gstApplicable} onChange={e => set({ gstApplicable: e.target.checked })} />} label={<span className="text-sm font-semibold">GST applicable</span>} />
+              </Grid>
+              <Grid size={{ xs: 12 }}>
+                <FormControlLabel
+                  control={<Switch checked={form.countsTowardRwaExemption} onChange={e => set({ countsTowardRwaExemption: e.target.checked })} />}
+                  label={<span className="text-sm font-semibold">Counts toward the ₹7,500 GST exemption limit</span>} />
+                <p className="text-[11px] text-slate-500 -mt-1">
+                  {form.countsTowardRwaExemption
+                    ? 'This head is part of the member’s monthly contribution when testing the exemption.'
+                    : 'Excluded from the test — use this for pure reimbursements like property tax or common-area electricity, which shouldn’t push a member over the limit.'}
+                </p>
               </Grid>
               {form.gstApplicable && (
                 <>

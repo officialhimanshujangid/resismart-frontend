@@ -5,9 +5,9 @@ import api from '@/lib/api';
 import {
   Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions, IconButton,
   CircularProgress, TableContainer, Table, TableHead, TableBody, TableRow, TableCell,
-  TablePagination, Paper, Zoom, FormControl, Select, MenuItem, Chip,
+  TablePagination, Paper, Zoom, FormControl, Select, MenuItem, Chip, Tooltip,
 } from '@mui/material';
-import { FileText, Play, X, Download, Receipt, IndianRupee, TrendingUp, AlertTriangle } from 'lucide-react';
+import { FileText, Play, X, Download, Receipt, IndianRupee, TrendingUp, AlertTriangle, BadgePercent } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 
 interface LineItem { code: string; name: string; category: string; baseAmountPaise: number; gstPaise: number; lineTotalPaise: number; }
@@ -63,6 +63,38 @@ export default function InvoicesPage() {
   const [preview, setPreview] = useState<{ created: number; skipped: number; totalBilledPaise: number } | null>(null);
 
   const [detail, setDetail] = useState<Invoice | null>(null);
+
+  const [adjustOf, setAdjustOf] = useState<Invoice | null>(null);
+  const [adjust, setAdjust] = useState({ kind: 'WAIVER', amount: '', reason: '' });
+  const [adjustBusy, setAdjustBusy] = useState(false);
+  const [rebate, setRebate] = useState<{ eligible: boolean; amountPaise: number; reason: string } | null>(null);
+
+  const openAdjust = async (inv: Invoice) => {
+    setAdjustOf(inv);
+    setAdjust({ kind: 'WAIVER', amount: '', reason: '' });
+    setRebate(null);
+    // Ask what a rebate would come to — a suggestion the committee applies, not
+    // something that happens on its own.
+    try {
+      const res = await api.get(`/finance/society/invoices/${inv._id}/rebate`);
+      setRebate(res.data);
+    } catch { /* rebates are optional; the dialog works without one */ }
+  };
+
+  const submitAdjust = async () => {
+    if (!adjustOf) return;
+    setAdjustBusy(true);
+    try {
+      const res = await api.post(`/finance/society/invoices/${adjustOf._id}/adjust`, {
+        kind: adjust.kind,
+        amountPaise: Math.round(parseFloat(adjust.amount || '0') * 100),
+        reason: adjust.reason.trim(),
+      });
+      showToast(`${rupees(Math.round(parseFloat(adjust.amount) * 100))} taken off ${res.data.invoiceNumber} — voucher ${res.data.voucherNumber}`, 'success');
+      setAdjustOf(null); load();
+    } catch (e: any) { showToast(e.response?.data?.error || 'Could not adjust this bill', 'error'); }
+    finally { setAdjustBusy(false); }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -168,6 +200,11 @@ export default function InvoicesPage() {
                   <TableCell className="font-mono text-xs text-slate-500">{new Date(inv.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</TableCell>
                   <TableCell><span className={`text-[9px] uppercase px-2 py-0.5 rounded-full font-black border ${STATUS_STYLES[inv.status] || STATUS_STYLES.DRAFT}`}>{inv.status.replace(/_/g, ' ')}</span></TableCell>
                   <TableCell align="right" onClick={e => e.stopPropagation()}>
+                    {inv.outstandingPaise > 0 && (
+                      <Tooltip title="Waive, write off or rebate part of this bill">
+                        <IconButton onClick={e => { e.stopPropagation(); openAdjust(inv); }} size="small" className="bg-slate-100 hover:bg-amber-50 hover:text-amber-600 text-slate-500 rounded-xl p-2 mr-1"><BadgePercent className="w-4 h-4" /></IconButton>
+                      </Tooltip>
+                    )}
                     <IconButton onClick={() => downloadPdf(inv)} size="small" className="bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-500 rounded-xl p-2"><Download className="w-4 h-4" /></IconButton>
                   </TableCell>
                 </TableRow>
@@ -256,6 +293,59 @@ export default function InvoicesPage() {
             </DialogActions>
           </>
         )}
+      </Dialog>
+
+      {/* Waive / write off / rebate — the society giving up income it already booked. */}
+      <Dialog open={!!adjustOf} onClose={() => setAdjustOf(null)} slots={{ transition: Zoom }} maxWidth="xs" fullWidth>
+        <DialogTitle className="flex justify-between items-center pr-3">
+          <div>
+            <p className="font-bold text-slate-800">Adjust {adjustOf?.invoiceNumber}</p>
+            <p className="text-xs text-slate-500 font-normal mt-0.5">{adjustOf?.blockName} {adjustOf?.flatNumber} · {rupees(adjustOf?.outstandingPaise)} outstanding</p>
+          </div>
+          <IconButton onClick={() => setAdjustOf(null)} size="small"><X className="w-5 h-5" /></IconButton>
+        </DialogTitle>
+        <DialogContent className="space-y-4">
+          <div className="space-y-1">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Why</span>
+            <FormControl fullWidth size="small">
+              <Select value={adjust.kind} onChange={e => setAdjust(a => ({ ...a, kind: e.target.value }))}>
+                <MenuItem value="WAIVER">Waiver — the committee has agreed not to charge it</MenuItem>
+                <MenuItem value="REBATE">Early-payment rebate</MenuItem>
+                <MenuItem value="WRITE_OFF">Write-off — it will never be recovered</MenuItem>
+              </Select>
+            </FormControl>
+          </div>
+
+          {adjust.kind === 'REBATE' && rebate && (
+            <div className={`rounded-xl p-3 text-xs ${rebate.eligible ? 'bg-emerald-50 border border-emerald-100 text-emerald-800' : 'bg-slate-50 border border-slate-200 text-slate-600'}`}>
+              {rebate.eligible ? (
+                <>
+                  Rebate due on this bill: <b>{rupees(rebate.amountPaise)}</b> — {rebate.reason}.
+                  <Button size="small" className="ml-1 font-bold" onClick={() => setAdjust(a => ({ ...a, amount: String(rebate.amountPaise / 100), reason: a.reason || 'Early-payment rebate' }))}>Use this</Button>
+                </>
+              ) : rebate.reason}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Amount (₹)</span>
+            <TextField hiddenLabel fullWidth size="small" type="number" value={adjust.amount} onChange={e => setAdjust(a => ({ ...a, amount: e.target.value }))} />
+          </div>
+          <div className="space-y-1">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Reason *</span>
+            <TextField hiddenLabel fullWidth size="small" multiline minRows={2} placeholder="Recorded against the bill and the ledger — a member may ask" value={adjust.reason} onChange={e => setAdjust(a => ({ ...a, reason: e.target.value }))} />
+          </div>
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600">
+            The bill keeps its full value and records what was given up alongside it — a bill that silently shrinks is one
+            nobody can audit. Any GST already charged is <b>not</b> reversed: that needs a formal credit note.
+          </div>
+        </DialogContent>
+        <DialogActions className="p-5 pt-0 gap-2">
+          <Button onClick={() => setAdjustOf(null)} variant="outlined" fullWidth className="py-2.5 font-bold">Cancel</Button>
+          <Button onClick={submitAdjust} disabled={adjustBusy || !adjust.amount || !adjust.reason.trim()} variant="contained" fullWidth className="py-2.5 font-bold">
+            {adjustBusy ? <CircularProgress size={18} color="inherit" /> : 'Apply'}
+          </Button>
+        </DialogActions>
       </Dialog>
     </div>
   );

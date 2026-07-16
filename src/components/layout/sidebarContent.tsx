@@ -19,7 +19,33 @@ export interface SidebarLink {
   moduleKey?: string;  // Used for permission filtering
   permittedUserType?: string[];
   children?: SidebarLink[];
+  /** Names a live counter the Sidebar resolves and renders as a badge. Hidden when 0/unknown. */
+  badgeKey?: 'financePendingConfirmations';
+  /**
+   * Hides this item unless the society has switched the module on in Finance →
+   * Settings. Visibility only — the screen and its data are untouched, so
+   * turning a module back on brings it straight back.
+   *
+   * Deliberately NOT `moduleKey`: that one gates system-employee permissions, and
+   * borrowing it would make finance disappear for an employee who simply lacks a
+   * permission. Different question, different field.
+   */
+  financeModule?: string;
 }
+
+/**
+ * Drop finance screens the society has switched off in Finance → Settings.
+ *
+ * Items with no `financeModule` are the core a society cannot bill without and
+ * always survive. Lives here rather than in the Sidebar so it can be tested
+ * against the real menu without standing up an authenticated page.
+ */
+export const filterLinksByFinanceModules = (items: SidebarLink[], enabled: string[]): SidebarLink[] =>
+  items.reduce<SidebarLink[]>((acc, link) => {
+    if (link.financeModule && !enabled.includes(link.financeModule)) return acc;
+    acc.push(link.children ? { ...link, children: filterLinksByFinanceModules(link.children, enabled) } : link);
+    return acc;
+  }, []);
 
 export const teamManagementMenu: SidebarLink = {
   label: 'Team Management',
@@ -169,14 +195,33 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
       {
         label: 'Finance Management',
         icon: <Landmark className="w-5 h-5" />,
+        // Ordered day-to-day → output → setup. The renderer has no section-label or
+        // divider support, so the grouping is expressed by order alone.
         children: [
+          // Day-to-day. The unmarked ones are the core a society cannot bill
+          // without — they are never hidden.
+          { label: 'Overview', href: '/dashboard/finance/overview' },
           { label: 'Invoices', href: '/dashboard/finance/invoices' },
           { label: 'Collections', href: '/dashboard/finance/collections' },
-          { label: 'Confirmations', href: '/dashboard/finance/confirmations' },
-          { label: 'Expenses', href: '/dashboard/finance/expenses' },
+          { label: 'Defaulter Notices', href: '/dashboard/finance/notices', financeModule: 'NOTICES' },
+          { label: 'Post-dated Cheques', href: '/dashboard/finance/pdc', financeModule: 'PDC' },
+          { label: 'Confirmations', href: '/dashboard/finance/confirmations', badgeKey: 'financePendingConfirmations' },
+          { label: 'Refunds', href: '/dashboard/finance/refunds', financeModule: 'REFUNDS' },
+          { label: 'Expenses', href: '/dashboard/finance/expenses', financeModule: 'EXPENSES' },
+          { label: 'Fixed Assets', href: '/dashboard/finance/assets', financeModule: 'ASSETS' },
+          { label: 'Fixed Deposits', href: '/dashboard/finance/investments', financeModule: 'INVESTMENTS' },
+          // Output
           { label: 'Reports', href: '/dashboard/finance/reports' },
+          { label: 'Budget', href: '/dashboard/finance/budget', financeModule: 'BUDGET' },
+          // Setup
+          { label: 'Members & Shares', href: '/dashboard/finance/shares', financeModule: 'SHARES' },
           { label: 'Charge Heads', href: '/dashboard/finance/charge-heads' },
-          { label: 'Funds', href: '/dashboard/finance/funds' },
+          { label: 'Funds', href: '/dashboard/finance/funds', financeModule: 'FUNDS' },
+          { label: 'Opening Balances', href: '/dashboard/finance/opening-balances', financeModule: 'ACCOUNTING' },
+          { label: 'Bulk Import', href: '/dashboard/finance/bulk-import', financeModule: 'IMPORT' },
+          { label: 'Chart of Accounts', href: '/dashboard/finance/chart-of-accounts', financeModule: 'ACCOUNTING' },
+          { label: 'Vouchers & Journal', href: '/dashboard/finance/journal', financeModule: 'ACCOUNTING' },
+          { label: 'Bank Reconciliation', href: '/dashboard/finance/bank-reconciliation', financeModule: 'BANKING' },
           { label: 'Settlement', href: '/dashboard/finance/settlement' },
           { label: 'Settings', href: '/dashboard/finance/settings' }
         ]

@@ -8,7 +8,7 @@ import LocationPicker from '@/components/common/LocationPicker';
 import {
   Button, TextField, CircularProgress, MenuItem, Select, FormControl, InputLabel, Grid, Paper, Divider, IconButton
 } from '@mui/material';
-import { Save, ArrowLeft } from 'lucide-react';
+import { Save, ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import OtpVerifyField from '@/components/common/OtpVerifyField';
 
 interface Block {
@@ -58,6 +58,15 @@ export default function FlatForm({ flatId }: Props) {
   });
 
   const [societyLocation, setSocietyLocation] = useState<{ lat: number; lng: number } | null>(null);
+
+  /**
+   * Counts a PER_QUANTITY charge head bills against, e.g. parkingSlots = 2.
+   * Held as rows rather than an object so a key can be renamed mid-edit without
+   * the field losing focus on every keystroke.
+   */
+  const [quantities, setQuantities] = useState<{ key: string; value: string }[]>([]);
+  const setQuantityRow = (i: number, patch: Partial<{ key: string; value: string }>) =>
+    setQuantities(rows => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
   // When provisioning an owner on create, BOTH email and phone must be OTP-verified.
   const [ownerEmailToken, setOwnerEmailToken] = useState('');
@@ -115,6 +124,7 @@ export default function FlatForm({ flatId }: Props) {
             latitude: lat,
             longitude: lng
           });
+          setQuantities(Object.entries(flat.quantities || {}).map(([key, value]) => ({ key, value: String(value) })));
         } else {
           // Pre-fill society location if available for creation
           setFormData((prev) => ({
@@ -154,11 +164,18 @@ export default function FlatForm({ flatId }: Props) {
     setSubmitting(true);
     try {
       if (flatId) {
+        // Sent whole: a row deleted here is a count removed. Blank keys are
+        // dropped rather than rejected, so an empty row left behind is harmless.
+        const quantityMap: Record<string, number> = {};
+        for (const { key, value } of quantities) {
+          if (key.trim()) quantityMap[key.trim()] = Number(value) || 0;
+        }
         await api.put(`/societies/flats/${flatId}`, {
           sizeId: formData.sizeId || undefined,
           fullAddress: formData.fullAddress,
           latitude: formData.latitude ? Number(formData.latitude) : undefined,
-          longitude: formData.longitude ? Number(formData.longitude) : undefined
+          longitude: formData.longitude ? Number(formData.longitude) : undefined,
+          quantities: quantityMap
         });
         showToast('Flat updated successfully', 'success');
       } else {
@@ -284,6 +301,55 @@ export default function FlatForm({ flatId }: Props) {
                 onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
               />
             </div>
+
+            {flatId && (
+              <>
+                <Divider sx={{ my: 4 }} />
+                <h3 className="text-sm font-bold text-slate-800 mb-1">Billable Counts (Optional)</h3>
+                <p className="text-xs text-slate-500 mb-4">
+                  What this flat has more than one of — parking slots, shops, servant rooms. A charge head set to
+                  &ldquo;Per quantity&rdquo; bills its rate for each one. The name must match the head&apos;s key exactly
+                  (e.g. <span className="font-mono">parkingSlots</span>); a flat with no matching count is not billed.
+                </p>
+                <div className="flex flex-col gap-3">
+                  {quantities.map((row, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <TextField
+                        label="What"
+                        size="small"
+                        className="flex-1"
+                        placeholder="parkingSlots"
+                        value={row.key}
+                        onChange={(e) => setQuantityRow(i, { key: e.target.value.replace(/[^A-Za-z0-9_]/g, '') })}
+                      />
+                      <TextField
+                        label="How many"
+                        size="small"
+                        type="number"
+                        className="w-32"
+                        value={row.value}
+                        onChange={(e) => setQuantityRow(i, { value: e.target.value })}
+                      />
+                      <IconButton
+                        size="small"
+                        onClick={() => setQuantities(rows => rows.filter((_, idx) => idx !== i))}
+                        className="bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-500 rounded-xl"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </IconButton>
+                    </div>
+                  ))}
+                  <Button
+                    size="small"
+                    onClick={() => setQuantities(rows => [...rows, { key: '', value: '' }])}
+                    startIcon={<Plus className="w-3.5 h-3.5" />}
+                    className="self-start font-bold"
+                  >
+                    Add a count
+                  </Button>
+                </div>
+              </>
+            )}
 
             {!flatId && (
               <>
