@@ -15,6 +15,8 @@ interface FlatSize {
   _id: string;
   name: string;
   details?: string;
+  carpetAreaSqft?: number;
+  builtUpAreaSqft?: number;
 }
 
 export default function FlatSizesPage() {
@@ -24,7 +26,7 @@ export default function FlatSizesPage() {
 
   const [openModal, setOpenModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ name: '', details: '' });
+  const [formData, setFormData] = useState({ name: '', details: '', carpetAreaSqft: '', builtUpAreaSqft: '' });
   const [submitting, setSubmitting] = useState(false);
 
   const fetchSizes = async () => {
@@ -48,11 +50,13 @@ export default function FlatSizesPage() {
       setEditingId(size._id);
       setFormData({
         name: size.name,
-        details: size.details || ''
+        details: size.details || '',
+        carpetAreaSqft: size.carpetAreaSqft != null ? String(size.carpetAreaSqft) : '',
+        builtUpAreaSqft: size.builtUpAreaSqft != null ? String(size.builtUpAreaSqft) : ''
       });
     } else {
       setEditingId(null);
-      setFormData({ name: '', details: '' });
+      setFormData({ name: '', details: '', carpetAreaSqft: '', builtUpAreaSqft: '' });
     }
     setOpenModal(true);
   };
@@ -70,6 +74,9 @@ export default function FlatSizesPage() {
     try {
       const payload: any = { name: formData.name.trim() };
       if (formData.details) payload.details = formData.details.trim();
+      // Sent even when blank, so clearing an area actually clears it.
+      payload.carpetAreaSqft = formData.carpetAreaSqft ? Number(formData.carpetAreaSqft) : undefined;
+      payload.builtUpAreaSqft = formData.builtUpAreaSqft ? Number(formData.builtUpAreaSqft) : undefined;
 
       if (editingId) {
         await api.put(`/flat-sizes/${editingId}`, payload);
@@ -111,6 +118,13 @@ export default function FlatSizesPage() {
       id: 'name',
       label: 'Size Name',
       render: (row) => <span className="font-semibold text-slate-800">{row.name}</span>
+    },
+    {
+      id: 'area',
+      label: 'Area (sq. ft.)',
+      render: (row) => (row.carpetAreaSqft || row.builtUpAreaSqft)
+        ? <span className="text-slate-700">{row.carpetAreaSqft ? `${row.carpetAreaSqft} carpet` : ''}{row.carpetAreaSqft && row.builtUpAreaSqft ? ' · ' : ''}{row.builtUpAreaSqft ? `${row.builtUpAreaSqft} built-up` : ''}</span>
+        : <span className="text-amber-600 text-xs font-semibold">not set</span>
     },
     {
       id: 'details',
@@ -180,12 +194,32 @@ export default function FlatSizesPage() {
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             placeholder="e.g. 3 BHK"
           />
+          <div className="grid grid-cols-2 gap-3">
+            <TextField
+              label="Carpet area (sq. ft.)"
+              type="number" fullWidth
+              value={formData.carpetAreaSqft}
+              onChange={(e) => setFormData({ ...formData, carpetAreaSqft: e.target.value })}
+            />
+            <TextField
+              label="Built-up area (sq. ft.)"
+              type="number" fullWidth
+              value={formData.builtUpAreaSqft}
+              onChange={(e) => setFormData({ ...formData, builtUpAreaSqft: e.target.value })}
+            />
+          </div>
+          <p className="text-xs text-slate-500 -mt-1">
+            Every flat of this size bills on this area, so it is entered once here rather than on each flat.
+            If two layouts differ — say a 1BHK of 1200 and another of 1500 — make them two sizes.
+            Correcting it here fixes every flat of this size at once.
+          </p>
+
           <TextField
             label="Details (Optional)"
             fullWidth
             value={formData.details}
             onChange={(e) => setFormData({ ...formData, details: e.target.value })}
-            placeholder="e.g. 1220 sq feet"
+            placeholder="e.g. corner units, east facing"
           />
         </DialogContent>
         <DialogActions className="p-4 border-t border-slate-100">

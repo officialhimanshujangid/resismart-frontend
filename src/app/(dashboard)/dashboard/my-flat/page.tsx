@@ -15,6 +15,7 @@ import {
   MapPin, Ruler, UserPlus, FileText, KeyRound,
 } from 'lucide-react';
 import FlatLifecycleManager, { FlatLifecycleManagerHandle } from '@/components/flats/FlatLifecycleManager';
+import FlatDocuments from '@/components/flats/FlatDocuments';
 
 interface Member {
   _id: string; name: string; email: string | null; phone: string | null;
@@ -54,7 +55,7 @@ export default function MyFlatPage() {
   const [data, setData] = useState<MyFlat | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFlat, setNotFlat] = useState(false);
-  const [tab, setTab] = useState<'household' | 'timeline'>('household');
+  const [tab, setTab] = useState<'household' | 'documents' | 'timeline'>('household');
 
   const lifecycleRef = useRef<FlatLifecycleManagerHandle>(null);
 
@@ -159,14 +160,16 @@ export default function MyFlatPage() {
             <div><p className="text-[10px] text-slate-400 font-bold uppercase">Occupants</p><p className="font-bold text-slate-800">{active.filter((m) => m.householdType === 'TENANT').length}</p></div>
           </div>
         </div>
-      ) : me.isOwner ? (
-        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/50 p-5 flex flex-col items-center justify-center text-center">
-          <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 mb-3"><KeyRound className="w-5 h-5" /></div>
-          <p className="font-bold text-slate-700">This flat is not rented</p>
-          <p className="text-xs text-slate-500 mb-3">Use “Rent Out” to move a tenant in. You will stay as owner of record.</p>
-          <Button variant="contained" size="small" startIcon={<KeyRound className="w-4 h-4" />} onClick={() => lifecycleRef.current?.openAction('rent')} sx={{ backgroundColor: '#0a5bd7' }}>Rent Out</Button>
-        </div>
-      ) : null}
+      ) : me.isOwner ? null
+        // (
+        //   <div className="rounded-2xl border border-slate-200/70 bg-slate-50/50 p-5 flex flex-col items-center justify-center text-center">
+        //     <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 mb-3"><KeyRound className="w-5 h-5" /></div>
+        //     <p className="font-bold text-slate-700">This flat is not rented</p>
+        //     <p className="text-xs text-slate-500 mb-3">Use “Rent Out” to move a tenant in. You will stay as owner of record.</p>
+        //     <Button variant="contained" size="small" startIcon={<KeyRound className="w-4 h-4" />} onClick={() => lifecycleRef.current?.openAction('rent')} sx={{ backgroundColor: '#0a5bd7' }}>Rent Out</Button>
+        //   </div>
+        // ) 
+        : null}
 
       <Grid container spacing={4}>
         <Grid size={{ xs: 12, md: 4 }}>
@@ -200,6 +203,11 @@ export default function MyFlatPage() {
         <Grid size={{ xs: 12, md: 8 }}>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
             <Tab value="household" label={`Household (${active.length})`} icon={<Users className="w-4 h-4" />} iconPosition="start" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 48 }} />
+            {/* Not shown to a tenant: these are the flat's title papers, and a
+                sale deed carries the owner's purchase price. The tenant's own
+                documents live under the tenancy section. The server refuses
+                them regardless — this just avoids offering a locked door. */}
+            {!viewerIsTenant && <Tab value="documents" label="Documents" icon={<FileText className="w-4 h-4" />} iconPosition="start" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 48 }} />}
             <Tab value="timeline" label={`Timeline (${feed.length})`} icon={<Activity className="w-4 h-4" />} iconPosition="start" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 48 }} />
           </Tabs>
 
@@ -232,6 +240,14 @@ export default function MyFlatPage() {
               ))}
             </div>
           )}
+
+          {/* Residents may read their flat's papers but not change them — a sale
+              deed is not something a tenant should be able to remove. The server
+              enforces this too, and resolves the flat from the session. */}
+          {/* The owner may add their own papers — they hold the originals. The
+              per-document bin is decided by the server and returned as
+              `canRemove`, so an owner never sees one on a society-filed deed. */}
+          {tab === 'documents' && !viewerIsTenant && <FlatDocuments flatId={flat._id} canManage={me.isOwner} />}
 
           {tab === 'timeline' && (
             <div className="space-y-3">

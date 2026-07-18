@@ -256,7 +256,7 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
     });
   };
 
-  const SidebarContent = () => (
+  const sidebarContentNode = (
     <div className="flex flex-col h-full bg-white/90 backdrop-blur-xl">
       <div className="h-16 flex items-center justify-center border-b border-slate-200/60 shrink-0">
         <ResiSmartLogo href="/dashboard" variant="full" />
@@ -273,7 +273,7 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
     <>
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-[280px] bg-white border-r border-slate-200/50 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 flex-shrink-0">
-        <SidebarContent />
+        {sidebarContentNode}
       </aside>
 
       {/* Mobile Drawer Sidebar */}
@@ -300,7 +300,7 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
               <X className="w-4 h-4" />
             </button>
           )}
-          <SidebarContent />
+          {sidebarContentNode}
         </aside>
       </div>
     </>

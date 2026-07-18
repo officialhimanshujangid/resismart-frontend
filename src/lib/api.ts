@@ -22,6 +22,22 @@ api.interceptors.request.use(
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // Let the browser own the Content-Type for file uploads.
+    //
+    // This instance defaults to application/json, and axios takes that
+    // literally: given FormData with a JSON content type it runs the body
+    // through `formDataToJSON`, where a File serialises to `{}` — so the upload
+    // arrives empty and the server sees no file at all. Deleting the header lets
+    // axios set `multipart/form-data` with the boundary it needs.
+    //
+    // Done here rather than at each call site because every caller has to
+    // remember it, and the ones that forgot failed silently.
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      delete (config.headers as any)['Content-Type'];
+      delete (config.headers as any)['content-type'];
+    }
+
     return config;
   },
   (error) => Promise.reject(error)

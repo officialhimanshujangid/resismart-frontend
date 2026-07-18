@@ -208,6 +208,7 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
           { label: 'Confirmations', href: '/dashboard/finance/confirmations', badgeKey: 'financePendingConfirmations' },
           { label: 'Refunds', href: '/dashboard/finance/refunds', financeModule: 'REFUNDS' },
           { label: 'Expenses', href: '/dashboard/finance/expenses', financeModule: 'EXPENSES' },
+          { label: 'Vendors', href: '/dashboard/finance/vendors', financeModule: 'EXPENSES' },
           { label: 'Fixed Assets', href: '/dashboard/finance/assets', financeModule: 'ASSETS' },
           { label: 'Fixed Deposits', href: '/dashboard/finance/investments', financeModule: 'INVESTMENTS' },
           // Output

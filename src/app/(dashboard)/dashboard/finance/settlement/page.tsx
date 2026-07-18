@@ -3,14 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { Paper, Button, TextField, CircularProgress, Radio } from '@mui/material';
-import { Landmark, ShieldCheck, Copy, Info, Wallet, Building2 } from 'lucide-react';
+import { Landmark, ShieldCheck, Copy, Info, Wallet } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 
 const MODES = [
   { v: 'OFFLINE_ONLY', title: 'Offline only', desc: 'Track cash / UPI / cheque manually. No online gateway.', icon: Wallet },
   { v: 'OWN_KEYS', title: 'Our own Razorpay', desc: 'Residents pay into YOUR society Razorpay account. Money never touches the platform.', icon: ShieldCheck },
   { v: 'PLATFORM_COLLECT_PAYOUT', title: 'Platform collects & pays out', desc: 'Platform collects online and settles to your society bank account.', icon: Landmark },
-  { v: 'PLATFORM_ROUTE', title: 'Platform (Route split)', desc: 'Platform gateway with automatic split-settlement to your linked account.', icon: Building2 },
 ];
 
 export default function SettlementPage() {
@@ -19,7 +18,7 @@ export default function SettlementPage() {
   const [saving, setSaving] = useState(false);
   const [mode, setMode] = useState('OFFLINE_ONLY');
   const [status, setStatus] = useState<any>(null);
-  const [f, setF] = useState({ upiId: '', keyId: '', keySecret: '', webhookSecret: '', routeAccountId: '', payoutAccountName: '', payoutAccountNumber: '', payoutIfsc: '', payoutBankName: '' });
+  const [f, setF] = useState({ upiId: '', keyId: '', keySecret: '', webhookSecret: '', payoutAccountName: '', payoutAccountNumber: '', payoutIfsc: '', payoutBankName: '' });
 
   const set = (patch: Partial<typeof f>) => setF(v => ({ ...v, ...patch }));
 
@@ -28,7 +27,7 @@ export default function SettlementPage() {
       setLoading(true);
       const res = await api.get('/finance/society/settlement');
       setStatus(res.data); setMode(res.data.mode);
-      set({ upiId: res.data.upiId || '', keyId: res.data.ownKeys?.keyId || '', routeAccountId: res.data.routeAccountId || '',
+      set({ upiId: res.data.upiId || '', keyId: res.data.ownKeys?.keyId || '',
         payoutAccountName: res.data.payoutBank?.accountName || '', payoutIfsc: res.data.payoutBank?.ifsc || '', payoutBankName: res.data.payoutBank?.bankName || '' });
     } catch (e: any) { showToast(e.response?.data?.error || 'Failed to load', 'error'); }
     finally { setLoading(false); }
@@ -38,7 +37,6 @@ export default function SettlementPage() {
   // Which required fields are satisfied for the chosen mode
   const canSave = (() => {
     if (mode === 'OWN_KEYS') return !!f.keyId && (!!f.keySecret || status?.ownKeys?.hasSecret) && (!!f.webhookSecret || status?.ownKeys?.hasWebhookSecret);
-    if (mode === 'PLATFORM_ROUTE') return !!f.routeAccountId;
     if (mode === 'PLATFORM_COLLECT_PAYOUT') return !!status?.payoutBank?.last4 || (!!f.payoutAccountName && !!f.payoutAccountNumber && !!f.payoutIfsc && !!f.payoutBankName);
     return true; // OFFLINE_ONLY
   })();
@@ -48,7 +46,6 @@ export default function SettlementPage() {
     try {
       const body: any = { mode, upiId: f.upiId };
       if (mode === 'OWN_KEYS') { body.keyId = f.keyId; if (f.keySecret) body.keySecret = f.keySecret; if (f.webhookSecret) body.webhookSecret = f.webhookSecret; }
-      if (mode === 'PLATFORM_ROUTE') body.routeAccountId = f.routeAccountId;
       if (mode === 'PLATFORM_COLLECT_PAYOUT') { body.payoutAccountName = f.payoutAccountName; body.payoutIfsc = f.payoutIfsc; body.payoutBankName = f.payoutBankName; if (f.payoutAccountNumber) body.payoutAccountNumber = f.payoutAccountNumber; }
       await api.put('/finance/society/settlement', body);
       showToast('Settlement settings saved', 'success'); set({ keySecret: '', webhookSecret: '', payoutAccountNumber: '' }); load();
@@ -96,14 +93,6 @@ export default function SettlementPage() {
               <div className="flex items-center gap-2 mt-1"><code className="bg-white px-2 py-1 rounded border border-blue-100 flex-1 truncate">{status.webhookUrl}</code><Button size="small" startIcon={<Copy className="w-3 h-3" />} onClick={() => { navigator.clipboard.writeText(status.webhookUrl); showToast('Copied', 'success'); }}>Copy</Button></div>
             </div>
           )}
-        </Paper>
-      )}
-
-      {mode === 'PLATFORM_ROUTE' && (
-        <Paper elevation={0} className="p-5 rounded-2xl border border-slate-200/60 space-y-2">
-          <Label>Razorpay Route linked-account id *</Label>
-          <TextField hiddenLabel fullWidth size="small" placeholder="acc_XXXXXXXX" value={f.routeAccountId} onChange={e => set({ routeAccountId: e.target.value })} />
-          <p className="text-xs text-slate-500">Your society must be onboarded as a Razorpay Route linked account; paste its <code>acc_...</code> id here.</p>
         </Paper>
       )}
 

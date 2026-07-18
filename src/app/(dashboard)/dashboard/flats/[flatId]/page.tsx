@@ -14,6 +14,7 @@ import {
   Menu, Divider,
 } from '@mui/material';
 import FlatLifecycleManager, { FlatLifecycleManagerHandle } from '@/components/flats/FlatLifecycleManager';
+import FlatDocuments from '@/components/flats/FlatDocuments';
 import {
   ArrowLeft, UserPlus, Trash2, ShieldCheck, User, KeyRound, Home, UserCheck,
   Plus, DoorOpen, Store, LogIn, History, Crown, MoreVertical, Pencil, FileText,
@@ -91,7 +92,7 @@ export default function FlatDetailsPage() {
   const [events, setEvents] = useState<FlatEvt[]>([]);
   const [tenancy, setTenancy] = useState<Tenancy | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'household' | 'tenancy' | 'timeline'>('household');
+  const [tab, setTab] = useState<'household' | 'tenancy' | 'documents' | 'timeline'>('household');
 
   const lifecycleRef = useRef<FlatLifecycleManagerHandle>(null);
 
@@ -381,8 +382,11 @@ export default function FlatDetailsPage() {
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
             <Tab value="household" label={`Household (${active.length})`} icon={<Users className="w-4 h-4" />} iconPosition="start" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 48 }} />
             <Tab value="tenancy" label={`Tenancy${tenancy ? ' •' : ''}`} icon={<KeyRound className="w-4 h-4" />} iconPosition="start" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 48 }} />
+            <Tab value="documents" label="Documents" icon={<FileText className="w-4 h-4" />} iconPosition="start" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 48 }} />
             <Tab value="timeline" label={`Timeline (${feed.length})`} icon={<Activity className="w-4 h-4" />} iconPosition="start" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 48 }} />
           </Tabs>
+
+          {tab === 'documents' && <FlatDocuments flatId={flatId as string} canManage={isAdmin} />}
 
           {tab === 'household' && (
             <div className="space-y-3">

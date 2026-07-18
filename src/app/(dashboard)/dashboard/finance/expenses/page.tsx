@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import api from '@/lib/api';
 import {
   Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions, IconButton,
@@ -43,8 +44,6 @@ export default function ExpensesPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ vendorId: '', description: '', paymentMode: 'BANK', lines: [{ expenseAccountCode: '', amount: '', blockId: '' }] });
 
-  const [vendorOpen, setVendorOpen] = useState(false);
-  const [newVendor, setNewVendor] = useState({ name: '', tdsApplicable: false, tdsRatePercent: '' });
 
   const [rejectTarget, setRejectTarget] = useState<Expense | null>(null);
   const [reason, setReason] = useState('');
@@ -62,7 +61,8 @@ export default function ExpensesPage() {
         api.get('/societies/blocks'),
       ]);
       setExpenses(ex.data.expenses); setTotal(ex.data.pagination?.total ?? 0);
-      setVendors(ve.data); setAccounts(ac.data);
+      // The vendors endpoint is paginated now, so it returns { vendors, pagination }.
+      setVendors(ve.data?.vendors ?? ve.data ?? []); setAccounts(ac.data);
       setBlocks(Array.isArray(bl.data) ? bl.data : (bl.data?.blocks ?? []));
     } catch (e: any) { showToast(e.response?.data?.error || 'Failed to load expenses', 'error'); }
     finally { setLoading(false); }
@@ -108,14 +108,6 @@ export default function ExpensesPage() {
     if (ok) { setRejectTarget(null); setReason(''); }
   };
 
-  const addVendor = async () => {
-    try {
-      await api.post('/finance/society/vendors', { name: newVendor.name, tdsApplicable: newVendor.tdsApplicable, tdsRatePercent: newVendor.tdsApplicable && newVendor.tdsRatePercent ? Number(newVendor.tdsRatePercent) : undefined });
-      showToast('Vendor added', 'success'); setNewVendor({ name: '', tdsApplicable: false, tdsRatePercent: '' });
-      const ve = await api.get('/finance/society/vendors'); setVendors(ve.data);
-    } catch (e: any) { showToast(e.response?.data?.error || 'Failed to add vendor', 'error'); }
-  };
-
   const setLine = (i: number, patch: any) => setForm(f => ({ ...f, lines: f.lines.map((l, idx) => idx === i ? { ...l, ...patch } : l) }));
 
   return (
@@ -126,7 +118,7 @@ export default function ExpensesPage() {
           <p className="text-sm text-slate-500 mt-0.5">Record vendor bills and society expenses with approvals</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => setVendorOpen(true)} variant="outlined" startIcon={<Users className="w-4 h-4" />}>Vendors</Button>
+          <Button component={Link} href="/dashboard/finance/vendors" variant="outlined" startIcon={<Users className="w-4 h-4" />}>Vendors</Button>
           <Button onClick={() => setCreateOpen(true)} variant="contained" startIcon={<Plus className="w-4 h-4" />}>Add Expense</Button>
         </div>
       </div>
@@ -222,23 +214,6 @@ export default function ExpensesPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Vendors */}
-      <Dialog open={vendorOpen} onClose={() => setVendorOpen(false)} slots={{ transition: Zoom }} maxWidth="xs" fullWidth>
-        <DialogTitle className="flex justify-between items-center pr-3"><span>Vendors</span><IconButton onClick={() => setVendorOpen(false)} size="small"><X className="w-5 h-5" /></IconButton></DialogTitle>
-        <DialogContent className="space-y-3">
-          <div className="flex gap-2 items-end">
-            <TextField hiddenLabel size="small" placeholder="Vendor name" value={newVendor.name} onChange={e => setNewVendor(v => ({ ...v, name: e.target.value }))} className="flex-1" />
-            <TextField hiddenLabel size="small" type="number" placeholder="TDS %" value={newVendor.tdsRatePercent} onChange={e => setNewVendor(v => ({ ...v, tdsRatePercent: e.target.value, tdsApplicable: !!e.target.value }))} className="w-20" />
-            <Button variant="contained" onClick={addVendor} disabled={!newVendor.name}>Add</Button>
-          </div>
-          <div className="divide-y border rounded-xl">
-            {vendors.length === 0 ? <p className="text-center text-slate-400 text-sm py-6">No vendors yet.</p> : vendors.map(v => (
-              <div key={v._id} className="flex justify-between px-3 py-2 text-sm"><span className="font-semibold text-slate-700">{v.name}</span>{v.tdsApplicable && <span className="text-xs text-slate-500">TDS {v.tdsRatePercent}%</span>}</div>
-            ))}
-          </div>
-        </DialogContent>
-        <DialogActions className="p-5 pt-0"><Button onClick={() => setVendorOpen(false)} variant="contained" fullWidth className="py-2.5 font-bold">Done</Button></DialogActions>
-      </Dialog>
 
       {/* Reject expense */}
       <Dialog open={!!rejectTarget} onClose={() => setRejectTarget(null)} slots={{ transition: Zoom }} maxWidth="xs" fullWidth>

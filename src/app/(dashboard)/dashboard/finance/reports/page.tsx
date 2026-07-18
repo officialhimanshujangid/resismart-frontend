@@ -6,7 +6,7 @@ import {
   Paper, CircularProgress, Table, TableHead, TableBody, TableRow, TableCell, TableContainer,
   TextField, Button, FormControl, Select, MenuItem, TablePagination, Tooltip,
 } from '@mui/material';
-import { FileText, Sheet, Info, ChevronRight, FileArchive } from 'lucide-react';
+import { FileText, Sheet, Info, ChevronRight, FileArchive, AlertTriangle } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 import { REPORTS, GROUPS, reportByKey } from './reportCatalog';
 import AccountLedgerDialog from './AccountLedgerDialog';
@@ -341,6 +341,38 @@ export default function ReportsPage() {
             {pager(data.rows.length)}
           </Section>
         </>);
+      case 'vendor-register':
+        return (<>
+          {!!data.missingPanCount && (
+            <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-800 flex gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{data.missingPanCount} vendor(s) have TDS switched on but no PAN. Form 26Q cannot be filed for them — add the PAN on the Vendors page.</span>
+            </div>
+          )}
+          <Section title="Vendors">
+            {table(
+              ['Vendor', 'PAN', 'TDS', 'Bills', 'Billed', 'TDS withheld', 'Paid', 'Outstanding'],
+              paged(data.rows).map((r: any) => [
+                <span key="n" className="flex items-center gap-1 text-slate-700 font-semibold">
+                  {r.name}{!r.isActive && <span className="text-[9px] uppercase text-slate-400 border border-slate-200 rounded px-1">inactive</span>}
+                </span>,
+                r.missingPan
+                  ? <span key="p" className="text-red-600 font-bold text-xs">missing</span>
+                  : <span key="p" className="font-mono text-xs text-slate-600">{r.pan || '—'}</span>,
+                <span key="t" className="text-xs text-slate-500">{r.tds || '—'}</span>,
+                <span key="b" className="text-slate-500">{r.bills}</span>,
+                money(r.billedPaise), money(r.tdsPaise), money(r.paidPaise),
+                <span key="o" className={`font-mono font-bold ${r.outstandingPaise > 0 ? 'text-amber-600' : 'text-slate-400'}`}>{rupees(r.outstandingPaise)}</span>,
+              ]),
+              ['Total', '', '', '', money(data.totals?.billedPaise), money(data.totals?.tdsPaise), money(data.totals?.paidPaise), money(data.totals?.outstandingPaise)],
+            )}
+            {pager(data.rows.length)}
+          </Section>
+          <p className="text-[11px] text-slate-400">
+            Outstanding is built from the ledger, so this total equals the <b>Sundry Creditors</b> figure on your Balance Sheet.
+          </p>
+        </>);
+
       case 'tds-register':
         return (<>
           {!!data.missingPan?.length && (

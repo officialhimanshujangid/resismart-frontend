@@ -39,9 +39,15 @@ export default function MyBillsPage() {
 
   const [payOpen, setPayOpen] = useState(false);
   const [payTab, setPayTab] = useState<'ONLINE' | 'OFFLINE'>('ONLINE');
-  const [offline, setOffline] = useState({ mode: 'UPI', amount: '', referenceNote: '' });
+  // Shared by both tabs: a member can pay ahead online or offline, so the amount
+  // is no longer an offline-only concern.
+  const [payForm, setPayForm] = useState({ mode: 'UPI', amount: '', referenceNote: '', payAdvance: false });
   const [processing, setProcessing] = useState(false);
-  const offlineAmountPaise = Math.max(0, Math.round(parseFloat(offline.amount || '0') * 100) || 0);
+
+  const payAmountPaise = Math.max(0, Math.round(parseFloat(payForm.amount || '0') * 100) || 0);
+  const duesPaise = summary?.totalOutstandingPaise ?? 0;
+  /** Anything above the dues is held as credit against future bills. */
+  const advancePaise = Math.max(0, payAmountPaise - duesPaise);
 
   const load = useCallback(async () => {
     try {
@@ -63,7 +69,7 @@ export default function MyBillsPage() {
 
   const openPay = () => {
     setPayTab(summary?.onlineEnabled ? 'ONLINE' : 'OFFLINE');
-    setOffline({ mode: 'UPI', amount: summary ? String(summary.totalOutstandingPaise / 100) : '', referenceNote: '' });
+    setPayForm({ mode: 'UPI', amount: summary ? String(summary.totalOutstandingPaise / 100) : '', referenceNote: '', payAdvance: false });
     setPayOpen(true);
   };
 
@@ -71,14 +77,17 @@ export default function MyBillsPage() {
     setProcessing(true);
     try {
       if (payTab === 'ONLINE') {
-        const res = await api.post('/finance/resident/pay-online', {});
+        // Send the amount explicitly — an empty body made the server bill exactly
+        // the dues, so paying ahead was impossible however much you typed.
+        const res = await api.post('/finance/resident/pay-online', { amountPaise: payAmountPaise });
         if (res.data?.paymentLinkUrl) window.location.href = res.data.paymentLinkUrl;
         else showToast('Could not start online payment', 'error');
       } else {
         await api.post('/finance/resident/report-offline', {
-          mode: offline.mode,
-          amountPaise: Math.round(parseFloat(offline.amount || '0') * 100),
-          referenceNote: offline.referenceNote || undefined,
+          mode: payForm.mode,
+          amountPaise: payAmountPaise,
+          referenceNote: payForm.referenceNote || undefined,
+          payAdvance: advancePaise > 0 ? true : undefined,
         });
         showToast('Payment reported. Awaiting committee confirmation.', 'success');
         setPayOpen(false); load();
@@ -200,43 +209,76 @@ export default function MyBillsPage() {
             <button className={`flex-1 py-2 text-sm font-bold rounded-md ${payTab === 'ONLINE' ? 'bg-white shadow-sm' : 'text-slate-500'}`} onClick={() => setPayTab('ONLINE')} disabled={!summary?.onlineEnabled}>Pay Online</button>
             <button className={`flex-1 py-2 text-sm font-bold rounded-md ${payTab === 'OFFLINE' ? 'bg-white shadow-sm' : 'text-slate-500'}`} onClick={() => setPayTab('OFFLINE')}>Report Offline</button>
           </div>
-          {payTab === 'ONLINE' ? (
-            summary?.onlineEnabled ? (
-              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-800 space-y-1">
-                <p>You'll be redirected to Razorpay to pay {rupees(summary?.totalOutstandingPaise)}. Your dues update automatically once payment succeeds.</p>
-              </div>
-            ) : <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-sm text-amber-800 flex gap-2"><Info className="w-5 h-5 shrink-0" />Online payment isn't enabled by your society. Please report an offline payment.</div>
+          {payTab === 'ONLINE' && !summary?.onlineEnabled ? (
+            <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-sm text-amber-800 flex gap-2"><Info className="w-5 h-5 shrink-0" />Online payment isn't enabled by your society. Please report an offline payment.</div>
           ) : (
             <div className="space-y-3">
-              {summary?.upiId && offline.mode === 'UPI' && (
+              {payTab === 'OFFLINE' && summary?.upiId && payForm.mode === 'UPI' && (
                 <UpiQrPanel
                   upiId={summary.upiId}
                   payeeName={summary.upiPayeeName}
-                  amountPaise={offlineAmountPaise}
+                  amountPaise={payAmountPaise}
                   note={summary.flatLabel ? `Maintenance ${summary.flatLabel}` : 'Maintenance'}
                 />
               )}
+
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Mode</span>
-                  <FormControl fullWidth size="small"><Select value={offline.mode} onChange={e => setOffline(o => ({ ...o, mode: e.target.value }))}>{['UPI', 'BANK_TRANSFER', 'CASH', 'CHEQUE'].map(m => <MenuItem key={m} value={m}>{m.replace(/_/g, ' ')}</MenuItem>)}</Select></FormControl>
-                </div>
-                <div className="space-y-1"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Amount (₹)</span>
-                  <TextField hiddenLabel fullWidth size="small" type="number" value={offline.amount} onChange={e => setOffline(o => ({ ...o, amount: e.target.value }))} />
+                {payTab === 'OFFLINE' && (
+                  <div className="space-y-1"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Mode</span>
+                    <FormControl fullWidth size="small"><Select value={payForm.mode} onChange={e => setPayForm(o => ({ ...o, mode: e.target.value }))}>{['UPI', 'BANK_TRANSFER', 'CASH', 'CHEQUE'].map(m => <MenuItem key={m} value={m}>{m.replace(/_/g, ' ')}</MenuItem>)}</Select></FormControl>
+                  </div>
+                )}
+                <div className={`space-y-1 ${payTab === 'ONLINE' ? 'col-span-2' : ''}`}>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Amount (₹)</span>
+                  <TextField hiddenLabel fullWidth size="small" type="number" value={payForm.amount} onChange={e => setPayForm(o => ({ ...o, amount: e.target.value }))} />
                 </div>
               </div>
-              <TextField hiddenLabel fullWidth size="small" placeholder="Reference / UTR / note" value={offline.referenceNote} onChange={e => setOffline(o => ({ ...o, referenceNote: e.target.value }))} />
-              <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-800 flex gap-2">
-                <Info className="w-4 h-4 shrink-0 mt-0.5" />
-                {offline.mode === 'UPI' && summary?.upiId
-                  ? 'Paying by QR doesn’t update your dues on its own. After paying, submit the UTR here — your dues clear once the committee confirms it.'
-                  : 'Marked as “Verifying” until your committee confirms receipt.'}
-              </div>
+
+              {/* What the money will actually do. Paying ahead is normal — going
+                  abroad, or just settling the year — so it is shown plainly
+                  rather than being refused as an error. */}
+              {payAmountPaise > 0 && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1">
+                  <div className="flex justify-between"><span className="text-slate-500">Towards dues</span><span className="font-semibold text-slate-700">{rupees(Math.min(payAmountPaise, duesPaise))}</span></div>
+                  {advancePaise > 0 && (
+                    <div className="flex justify-between"><span className="text-emerald-700">Held as advance credit</span><span className="font-bold text-emerald-700">{rupees(advancePaise)}</span></div>
+                  )}
+                  {duesPaise > payAmountPaise && (
+                    <div className="flex justify-between"><span className="text-amber-700">Still owing after this</span><span className="font-semibold text-amber-700">{rupees(duesPaise - payAmountPaise)}</span></div>
+                  )}
+                </div>
+              )}
+
+              {advancePaise > 0 && (
+                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-800 flex gap-2">
+                  <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                  {rupees(advancePaise)} more than you owe. It stays with the society as credit and is applied automatically to your next bill.
+                </div>
+              )}
+
+              {payTab === 'OFFLINE' && (
+                <>
+                  <TextField hiddenLabel fullWidth size="small" placeholder="Reference / UTR / note" value={payForm.referenceNote} onChange={e => setPayForm(o => ({ ...o, referenceNote: e.target.value }))} />
+                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-800 flex gap-2">
+                    <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                    {payForm.mode === 'UPI' && summary?.upiId
+                      ? 'Paying by QR doesn’t update your dues on its own. After paying, submit the UTR here — your dues clear once the committee confirms it.'
+                      : 'Marked as “Verifying” until your committee confirms receipt.'}
+                  </div>
+                </>
+              )}
+
+              {payTab === 'ONLINE' && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
+                  You'll be redirected to Razorpay to pay {rupees(payAmountPaise)}. Your dues update automatically once payment succeeds.
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
         <DialogActions className="p-5 pt-0 gap-2">
           <Button onClick={() => setPayOpen(false)} variant="outlined" fullWidth className="py-2.5 font-bold">Cancel</Button>
-          <Button onClick={pay} disabled={processing} variant="contained" fullWidth className="py-2.5 font-bold" startIcon={payTab === 'ONLINE' ? <ExternalLink className="w-4 h-4" /> : undefined}>{processing ? <CircularProgress size={18} color="inherit" /> : payTab === 'ONLINE' ? 'Proceed to Pay' : 'Submit'}</Button>
+          <Button onClick={pay} disabled={processing || payAmountPaise <= 0} variant="contained" fullWidth className="py-2.5 font-bold" startIcon={payTab === 'ONLINE' ? <ExternalLink className="w-4 h-4" /> : undefined}>{processing ? <CircularProgress size={18} color="inherit" /> : payTab === 'ONLINE' ? 'Proceed to Pay' : 'Submit'}</Button>
         </DialogActions>
       </Dialog>
     </div>

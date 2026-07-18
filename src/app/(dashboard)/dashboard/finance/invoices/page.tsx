@@ -7,13 +7,13 @@ import {
   CircularProgress, TableContainer, Table, TableHead, TableBody, TableRow, TableCell,
   TablePagination, Paper, Zoom, FormControl, Select, MenuItem, Chip, Tooltip,
 } from '@mui/material';
-import { FileText, Play, X, Download, Receipt, IndianRupee, TrendingUp, AlertTriangle, BadgePercent } from 'lucide-react';
+import { FileText, Play, X, Download, Receipt, IndianRupee, TrendingUp, AlertTriangle, BadgePercent, Zap } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 
 interface LineItem { code: string; name: string; category: string; baseAmountPaise: number; gstPaise: number; lineTotalPaise: number; }
 interface Invoice {
   _id: string; invoiceNumber: string; flatNumber: string; blockName: string;
-  primaryOwnerName?: string; billingPeriod: string; invoiceDate: string; dueDate: string;
+  primaryOwnerName?: string; billingPeriod: string; demandTitle?: string; invoiceDate: string; dueDate: string;
   subTotalPaise: number; gstPaise: number; interestPaise: number; roundingPaise: number;
   openingArrearsPaise: number; totalPaise: number; grandTotalDuePaise: number;
   advanceAppliedPaise: number; outstandingPaise: number; status: string; lineItems: LineItem[];
@@ -60,7 +60,17 @@ export default function InvoicesPage() {
   const [genOpen, setGenOpen] = useState(false);
   const [genPeriod, setGenPeriod] = useState(currentPeriod());
   const [genBusy, setGenBusy] = useState(false);
-  const [preview, setPreview] = useState<{ created: number; skipped: number; totalBilledPaise: number } | null>(null);
+  const [preview, setPreview] = useState<{
+    created: number; skipped: number; totalBilledPaise: number;
+    unbilled?: { flat: string; chargeHeadName: string; reason: string }[];
+    fundImpact?: { fundId: string; fundName: string; targetAmountPaise: number; raisedPaise: number; thisRunPaise: number; projectedPaise: number; overByPaise: number; shortByPaise: number }[];
+  } | null>(null);
+  const [confirmOverTarget, setConfirmOverTarget] = useState(false);
+
+  const [demandOpen, setDemandOpen] = useState(false);
+  const [heads, setHeads] = useState<{ _id: string; code: string; name: string }[]>([]);
+  const [blocks, setBlocks] = useState<{ _id: string; name: string }[]>([]);
+  const [demand, setDemand] = useState({ chargeHeadIds: [] as string[], blockIds: [] as string[], title: '', dueDate: '' });
 
   const [detail, setDetail] = useState<Invoice | null>(null);
 
@@ -119,15 +129,63 @@ export default function InvoicesPage() {
   const runGenerate = async (dryRun: boolean) => {
     setGenBusy(true);
     try {
-      const res = await api.post('/finance/society/invoices/generate', { period: genPeriod, dryRun });
+      const res = await api.post('/finance/society/invoices/generate', {
+        period: genPeriod, dryRun,
+        // Only sent once the treasurer has ticked it, and only after the server
+        // has said this run would push a fund past its target.
+        confirmOverTarget: confirmOverTarget || undefined,
+      });
       if (dryRun) {
         setPreview(res.data);
       } else {
         showToast(`Generated ${res.data.created} invoice(s) for ${res.data.period} (${res.data.skipped} skipped)`, 'success');
-        setGenOpen(false); setPreview(null); setPage(0); load();
+        setGenOpen(false); setPreview(null); setConfirmOverTarget(false); setPage(0); load();
       }
     } catch (e: any) {
+      // A fund breach comes back as a 409 carrying the numbers, so the dialog can
+      // show what is wrong instead of a bare error toast.
+      if (e.response?.status === 409 && e.response.data?.requiresConfirmation) {
+        setPreview((p: any) => ({ ...(p || { created: 0, skipped: 0, totalBilledPaise: 0 }), fundImpact: e.response.data.fundImpact }));
+      }
       showToast(e.response?.data?.error || 'Generation failed', 'error');
+    } finally { setGenBusy(false); }
+  };
+
+  const openDemand = async () => {
+    setDemand({ chargeHeadIds: [], blockIds: [], title: '', dueDate: '' });
+    setPreview(null); setConfirmOverTarget(false); setDemandOpen(true);
+    try {
+      const [h, b] = await Promise.all([
+        api.get('/finance/society/charge-heads'),
+        api.get('/societies/blocks'),
+      ]);
+      setHeads(h.data || []);
+      setBlocks(Array.isArray(b.data) ? b.data : (b.data?.blocks ?? []));
+    } catch (e: any) { showToast(e.response?.data?.error || 'Could not load charge heads', 'error'); }
+  };
+
+  const runDemand = async (dryRun: boolean) => {
+    setGenBusy(true);
+    try {
+      const res = await api.post('/finance/society/invoices/special-demand', {
+        chargeHeadIds: demand.chargeHeadIds,
+        blockIds: demand.blockIds.length ? demand.blockIds : undefined,
+        title: demand.title.trim(),
+        dueDate: demand.dueDate ? new Date(demand.dueDate).toISOString() : undefined,
+        dryRun,
+        confirmOverTarget: confirmOverTarget || undefined,
+      });
+      if (dryRun) {
+        setPreview(res.data);
+      } else {
+        showToast(`Raised ${res.data.created} demand(s) — ${res.data.period}`, 'success');
+        setDemandOpen(false); setPreview(null); setConfirmOverTarget(false); setPage(0); load();
+      }
+    } catch (e: any) {
+      if (e.response?.status === 409 && e.response.data?.requiresConfirmation) {
+        setPreview((p: any) => ({ ...(p || { created: 0, skipped: 0, totalBilledPaise: 0 }), fundImpact: e.response.data.fundImpact }));
+      }
+      showToast(e.response?.data?.error || 'Could not raise the demand', 'error');
     } finally { setGenBusy(false); }
   };
 
@@ -145,7 +203,8 @@ export default function InvoicesPage() {
           <h1 className="text-2xl font-black text-slate-800 tracking-tight">Invoices</h1>
           <p className="text-sm text-slate-500 mt-0.5">Generate and track consolidated maintenance invoices</p>
         </div>
-        <Button onClick={() => { setGenOpen(true); setPreview(null); }} variant="contained" startIcon={<Play className="w-4 h-4" />} sx={{ whiteSpace: 'nowrap' }}>Generate Invoices</Button>
+        <Button onClick={openDemand} variant="outlined" startIcon={<Zap className="w-4 h-4" />} sx={{ whiteSpace: 'nowrap' }}>Special Demand</Button>
+        <Button onClick={() => { setGenOpen(true); setPreview(null); setConfirmOverTarget(false); }} variant="contained" startIcon={<Play className="w-4 h-4" />} sx={{ whiteSpace: 'nowrap' }}>Generate Invoices</Button>
       </div>
 
       {/* Summary */}
@@ -194,7 +253,14 @@ export default function InvoicesPage() {
                   <TableCell className="font-mono text-xs font-bold text-slate-700">{inv.invoiceNumber}</TableCell>
                   <TableCell className="font-bold text-slate-800">{inv.flatNumber}<span className="text-slate-400 font-normal text-xs"> · {inv.blockName}</span></TableCell>
                   <TableCell className="text-slate-600">{inv.primaryOwnerName || '—'}</TableCell>
-                  <TableCell className="text-slate-500 font-semibold">{inv.billingPeriod}</TableCell>
+                  <TableCell className="text-slate-500 font-semibold">
+                    {inv.billingPeriod}
+                    {inv.demandTitle && (
+                      <Tooltip title={inv.demandTitle}>
+                        <span className="ml-1 text-[9px] font-black uppercase text-amber-700 bg-amber-50 border border-amber-100 rounded px-1 py-0.5">Special</span>
+                      </Tooltip>
+                    )}
+                  </TableCell>
                   <TableCell align="right" className="font-bold text-slate-800">{rupees(inv.grandTotalDuePaise)}</TableCell>
                   <TableCell align="right" className={`font-bold ${inv.outstandingPaise > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{rupees(inv.outstandingPaise)}</TableCell>
                   <TableCell className="font-mono text-xs text-slate-500">{new Date(inv.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</TableCell>
@@ -240,12 +306,175 @@ export default function InvoicesPage() {
               <div className="flex justify-between"><span className="text-slate-500">Will create</span><span className="font-bold text-slate-800">{preview.created} invoices</span></div>
               <div className="flex justify-between"><span className="text-slate-500">Already exists (skip)</span><span className="font-bold text-slate-800">{preview.skipped}</span></div>
               <div className="flex justify-between"><span className="text-slate-500">Estimated billing</span><span className="font-bold text-blue-700">{rupees(preview.totalBilledPaise)}</span></div>
+
+              {/* Flats a charge head applies to but cannot price. These used to
+                  vanish without a word, and a society only found out when the
+                  collection came up short. */}
+              {!!preview.unbilled?.length && (
+                <div className="mt-3 pt-3 border-t border-amber-200 bg-amber-50 -mx-3 -mb-3 px-3 py-3 rounded-b-xl">
+                  <p className="text-xs font-black text-amber-800 mb-1.5">
+                    {preview.unbilled.length} flat{preview.unbilled.length === 1 ? '' : 's'} will be billed ₹0
+                  </p>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {preview.unbilled.slice(0, 12).map((u, i) => (
+                      <p key={i} className="text-[11px] text-amber-800">
+                        <b>{u.flat}</b> — {u.chargeHeadName}: {u.reason}
+                      </p>
+                    ))}
+                    {preview.unbilled.length > 12 && (
+                      <p className="text-[11px] text-amber-700 font-semibold">…and {preview.unbilled.length - 12} more</p>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-amber-700 mt-2">Fix these first, or they simply will not be charged.</p>
+                </div>
+              )}
+
+              {/* What this run does to any fund with a target. Over-collecting is
+                  hard to explain afterwards and harder to refund. */}
+              {!!preview.fundImpact?.length && (
+                <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                  <p className="text-xs font-black text-slate-600">Fund impact</p>
+                  {preview.fundImpact.map(f => (
+                    <div key={f.fundId} className={`rounded-lg px-2.5 py-2 text-[11px] ${f.overByPaise > 0 ? 'bg-red-50 border border-red-100 text-red-800' : 'bg-slate-50 border border-slate-200 text-slate-700'}`}>
+                      <p className="font-bold">{f.fundName}</p>
+                      <p>
+                        Already billed {rupees(f.raisedPaise)} + this run {rupees(f.thisRunPaise)} = <b>{rupees(f.projectedPaise)}</b>,
+                        against a target of {rupees(f.targetAmountPaise)}.
+                      </p>
+                      {f.overByPaise > 0
+                        ? <p className="font-bold mt-0.5">⚠ {rupees(f.overByPaise)} more than the fund needs.</p>
+                        : f.shortByPaise > 0
+                          ? <p className="mt-0.5">{rupees(f.shortByPaise)} still short of the target after this run.</p>
+                          : <p className="mt-0.5">Meets the target exactly.</p>}
+                    </div>
+                  ))}
+                  {preview.fundImpact.some(f => f.overByPaise > 0) && (
+                    <label className="flex items-start gap-2 text-[11px] text-red-800 cursor-pointer">
+                      <input
+                        type="checkbox" className="mt-0.5"
+                        checked={confirmOverTarget}
+                        onChange={e => setConfirmOverTarget(e.target.checked)}
+                      />
+                      <span>I understand this bills members more than the fund needs, and I want to go ahead.</span>
+                    </label>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
         <DialogActions className="p-5 pt-0 gap-2">
           <Button onClick={() => runGenerate(true)} disabled={genBusy} variant="outlined" fullWidth className="py-2.5 font-bold">{genBusy && !preview ? <CircularProgress size={18} /> : 'Preview'}</Button>
           <Button onClick={() => runGenerate(false)} disabled={genBusy} variant="contained" fullWidth className="py-2.5 font-bold">{genBusy ? <CircularProgress size={18} color="inherit" /> : 'Generate'}</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Special demand — a one-off levy raised after the month's bill has gone. */}
+      <Dialog open={demandOpen} onClose={() => setDemandOpen(false)} slots={{ transition: Zoom }} maxWidth="sm" fullWidth>
+        <DialogTitle className="flex justify-between items-center pr-3">
+          <span className="flex items-center gap-2"><Zap className="w-5 h-5 text-amber-600" />Special Demand</span>
+          <IconButton onClick={() => setDemandOpen(false)} size="small"><X className="w-5 h-5" /></IconButton>
+        </DialogTitle>
+        <DialogContent className="space-y-4">
+          <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-800">
+            For something that could not wait for next month — an urgent repair, a painting contract.
+            It is raised alongside this month&apos;s bill, and carries <b>no interest and no arrears line</b>.
+          </div>
+
+          <div className="space-y-1">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">What are you billing for? *</span>
+            <FormControl fullWidth size="small">
+              <Select
+                multiple displayEmpty
+                value={demand.chargeHeadIds}
+                onChange={e => { setDemand(d => ({ ...d, chargeHeadIds: (typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value) as string[] })); setPreview(null); }}
+                renderValue={(v) => (v as string[]).length
+                  ? heads.filter(h => (v as string[]).includes(h._id)).map(h => h.name).join(', ')
+                  : 'Choose a charge head'}
+              >
+                {heads.map(h => <MenuItem key={h._id} value={h._id}>{h.code} · {h.name}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <p className="text-[10px] text-slate-400">Set the amount and how it splits on the charge head itself.</p>
+          </div>
+
+          <div className="space-y-1">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Reason, as members will see it *</span>
+            <TextField
+              hiddenLabel fullWidth size="small" placeholder="e.g. External painting 2026"
+              value={demand.title} onChange={e => setDemand(d => ({ ...d, title: e.target.value }))}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {blocks.length > 1 && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Which wings</span>
+                <FormControl fullWidth size="small">
+                  <Select
+                    multiple displayEmpty
+                    value={demand.blockIds}
+                    onChange={e => { setDemand(d => ({ ...d, blockIds: (typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value) as string[] })); setPreview(null); }}
+                    renderValue={(v) => (v as string[]).length
+                      ? blocks.filter(b => (v as string[]).includes(b._id)).map(b => b.name).join(', ')
+                      : 'Every wing'}
+                  >
+                    {blocks.map(b => <MenuItem key={b._id} value={b._id}>{b.name}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </div>
+            )}
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Due date</span>
+              <TextField
+                hiddenLabel fullWidth size="small" type="date"
+                value={demand.dueDate} onChange={e => setDemand(d => ({ ...d, dueDate: e.target.value }))}
+              />
+              <p className="text-[10px] text-slate-400">Blank uses your usual due days.</p>
+            </div>
+          </div>
+
+          {preview && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm space-y-1.5">
+              <div className="flex justify-between"><span className="text-slate-500">Will raise</span><span className="font-bold text-slate-800">{preview.created} demand(s)</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Total</span><span className="font-bold text-blue-700">{rupees(preview.totalBilledPaise)}</span></div>
+
+              {!!preview.unbilled?.length && (
+                <div className="mt-2 pt-2 border-t border-amber-200 bg-amber-50 -mx-3 -mb-3 px-3 py-2 rounded-b-xl">
+                  <p className="text-xs font-black text-amber-800 mb-1">{preview.unbilled.length} flat(s) would be billed ₹0</p>
+                  {preview.unbilled.slice(0, 8).map((u, i) => (
+                    <p key={i} className="text-[11px] text-amber-800"><b>{u.flat}</b> — {u.reason}</p>
+                  ))}
+                </div>
+              )}
+
+              {!!preview.fundImpact?.length && (
+                <div className="mt-2 pt-2 border-t border-slate-200 space-y-2">
+                  {preview.fundImpact.map(f => (
+                    <div key={f.fundId} className={`rounded-lg px-2.5 py-2 text-[11px] ${f.overByPaise > 0 ? 'bg-red-50 border border-red-100 text-red-800' : 'bg-white border border-slate-200 text-slate-700'}`}>
+                      <p className="font-bold">{f.fundName}</p>
+                      <p>Already billed {rupees(f.raisedPaise)} + this demand {rupees(f.thisRunPaise)} = <b>{rupees(f.projectedPaise)}</b> against {rupees(f.targetAmountPaise)}.</p>
+                      {f.overByPaise > 0 && <p className="font-bold mt-0.5">⚠ {rupees(f.overByPaise)} more than the fund needs.</p>}
+                    </div>
+                  ))}
+                  {preview.fundImpact.some(f => f.overByPaise > 0) && (
+                    <label className="flex items-start gap-2 text-[11px] text-red-800 cursor-pointer">
+                      <input type="checkbox" className="mt-0.5" checked={confirmOverTarget} onChange={e => setConfirmOverTarget(e.target.checked)} />
+                      <span>I understand this bills members more than the fund needs, and I want to go ahead.</span>
+                    </label>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+        <DialogActions className="p-5 pt-0 gap-2">
+          <Button onClick={() => runDemand(true)} disabled={genBusy || !demand.chargeHeadIds.length || !demand.title.trim()} variant="outlined" fullWidth className="py-2.5 font-bold">
+            {genBusy && !preview ? <CircularProgress size={18} /> : 'Preview'}
+          </Button>
+          <Button onClick={() => runDemand(false)} disabled={genBusy || !demand.chargeHeadIds.length || !demand.title.trim()} variant="contained" fullWidth className="py-2.5 font-bold">
+            {genBusy ? <CircularProgress size={18} color="inherit" /> : 'Raise Demand'}
+          </Button>
         </DialogActions>
       </Dialog>
 

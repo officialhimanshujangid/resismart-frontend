@@ -329,7 +329,8 @@ export default function BulkImportPage() {
 
 /** Mirrors the server's columns so the hint is right before the first preview. */
 function defaultColumns(kind: Kind): string[] {
-  if (kind === 'FLATS') return ['Block', 'Flat Number', 'Status', 'Carpet Area Sqft', 'Built-up Area Sqft'];
+  // 'Size' names an existing flat size; the area lives on that size, not per flat.
+  if (kind === 'FLATS') return ['Block', 'Flat Number', 'Status', 'Size'];
   if (kind === 'MEMBERS') return ['Block', 'Flat Number', 'Member Name', 'Shares', 'Face Value'];
   return ['Block', 'Flat Number', 'Amount Due'];
 }

@@ -20,6 +20,8 @@ interface FlatSize {
   _id: string;
   name: string;
   details?: string;
+  carpetAreaSqft?: number;
+  builtUpAreaSqft?: number;
 }
 
 interface Props {
@@ -75,6 +77,9 @@ export default function FlatForm({ flatId }: Props) {
   const phoneVerified = !!ownerPhoneToken;
 
   const hasOwnerInfo = !!(formData.ownerName.trim() || formData.ownerEmail.trim() || formData.ownerPhone.trim());
+
+  /** The chosen size, so the form can show the area this flat will actually bill on. */
+  const selectedSize = flatSizes.find(s => s._id === formData.sizeId);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -148,6 +153,12 @@ export default function FlatForm({ flatId }: Props) {
   const handleSubmit = async () => {
     if (!formData.number.trim() || !formData.blockId) {
       showToast('Flat number and block are required', 'error');
+      return;
+    }
+    // The size carries the area a per-sqft charge head multiplies, so a flat
+    // created without one could never be billed that way.
+    if (!flatId && !formData.sizeId) {
+      showToast('Choose a flat size — it carries the area used for billing', 'error');
       return;
     }
     // If an owner is being provisioned (create only), name + verified email + verified phone are required.
@@ -277,16 +288,19 @@ export default function FlatForm({ flatId }: Props) {
                 disabled={!!flatId}
               />
 
-              <FormControl fullWidth size="small">
+              <FormControl fullWidth size="small" required={!flatId}>
                 <InputLabel>Flat Size</InputLabel>
                 <Select
                   value={formData.sizeId}
                   label="Flat Size"
                   onChange={(e) => setFormData({ ...formData, sizeId: e.target.value })}
                 >
-                  <MenuItem value=""><em>None</em></MenuItem>
+                  {flatId && <MenuItem value=""><em>None</em></MenuItem>}
                   {flatSizes.map(s => (
-                    <MenuItem key={s._id} value={s._id}>{s.name} {s.details ? `(${s.details})` : ''}</MenuItem>
+                    <MenuItem key={s._id} value={s._id}>
+                      {s.name}
+                      {s.carpetAreaSqft ? ` · ${s.carpetAreaSqft} sqft carpet` : ''}
+                    </MenuItem>
                   ))}
                 </Select>
               </FormControl>
@@ -301,6 +315,23 @@ export default function FlatForm({ flatId }: Props) {
                 onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
               />
             </div>
+
+            {/* Area is not entered here at all — it belongs to the size, so it is
+                set once per layout and a correction fixes every flat at once. */}
+            {selectedSize && (
+              selectedSize.carpetAreaSqft ? (
+                <p className="text-xs text-slate-500 mt-3">
+                  Area for billing comes from this size: <b>{selectedSize.carpetAreaSqft} sq. ft. carpet</b>
+                  {selectedSize.builtUpAreaSqft ? <> · <b>{selectedSize.builtUpAreaSqft} sq. ft. built-up</b></> : null}.
+                  Change it in <b>Flat Sizes</b> to update every flat of this size.
+                </p>
+              ) : (
+                <p className="text-xs text-amber-700 mt-3">
+                  This size has no area recorded, so a per-sq-ft charge head would bill this flat nothing.
+                  Set it once in <b>Flat Sizes</b> and every flat of this size is covered.
+                </p>
+              )
+            )}
 
             {flatId && (
               <>

@@ -86,6 +86,14 @@ export const REPORTS: ReportMeta[] = [
     period: 'RANGE',
   },
   {
+    key: 'vendor-register',
+    label: 'Vendors',
+    group: 'Registers',
+    what: 'Every vendor the society deals with — what was billed in the period, what tax was withheld, what has been paid, and what is still owed.',
+    who: 'The committee before a payment run, and your auditor, who will ask what the Sundry Creditors figure on the Balance Sheet is made of. The two agree by construction.',
+    period: 'RANGE',
+  },
+  {
     key: 'tds-register',
     label: 'TDS',
     group: 'Registers',
