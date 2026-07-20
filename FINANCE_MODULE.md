@@ -228,6 +228,7 @@ Two controls, both off by default:
 
 | Screen | Path | What it is for |
 |---|---|---|
+| **Setup & Opening Balances** | `/dashboard/finance/setup` | **Asked once, before anything else works.** Where do this society's books start? See below. |
 | **Overview** | `/dashboard/finance/overview` | Cash position, collection efficiency, ageing, top defaulters, pending approvals. The home page. |
 | **Invoices** | `/dashboard/finance/invoices` | Generate a period's bills (with a **dry-run preview** first), view, send, download. |
 | **Collections** | `/dashboard/finance/collections` | Record money received. Cash, cheque, NEFT, UPI. |
@@ -238,11 +239,79 @@ Two controls, both off by default:
 | **Settings** | `/dashboard/finance/settings` | Every rule, and the module switches. |
 | **My Bills** *(resident)* | `/dashboard/finance/my-bills` | The resident's own bills; pay online or report an offline payment. |
 
+### Setup — the one question asked before anything else
+
+Nothing can be **recorded** until the society has said where its books start. Reading is always allowed; writing is not. A brand new society answers in one click.
+
+**Why a gate at all.** A balance sheet built on an unstated opening position is wrong in a way nobody notices for a year. The screen does not demand *data* — it demands an *answer*, and **"we had nothing" is a real answer** that is recorded as such. Being asked and saying no is a different, far more defensible thing than never being asked.
+
+Five sections, each independently answerable or tickable as empty:
+
+| Section | Posts | Notes |
+|---|---|---|
+| Bank & cash | Debit the asset account | What was actually in the accounts that day |
+| Member dues | *(via Bulk Import)* | Opening invoices per flat; the section is satisfied by having any invoice |
+| **Vendor dues** | Credit `2200 Sundry Creditors`, tagged per vendor | Without this, Creditors is understated and **the society looks richer than it is** |
+| Fund balances | Credit the fund's account | Corpus, sinking, repair |
+| Deposits held | Credit `2400` | Refundable deposits from members or contractors |
+
+The difference lands on **`3900 Opening Balance Equity`** automatically. Nobody is asked to make debits equal credits by hand — that would be asking a treasurer to do bookkeeping in order to answer a question about bank balances.
+
+**A society that was already trading is never locked out.** If entries exist but nobody ever answered, `resolveSetup` reads the starting point off the earliest transaction and records it as `inferredFrom` — a stated answer and an assumed one stay distinguishable. Such a society keeps working, and can still state its real opening position later. This is the same protection `resolveModules` carries, for the same reason.
+
+**Corrections go the normal way.** Once an opening voucher exists it cannot be rewritten; reopening is refused until that voucher has been **reversed**. Reversal leaves both the error and the fix visible, which is what an auditor expects. If nothing was posted (everything declared empty), reopening is free while no entries sit on top.
+
+| Endpoint | Does |
+|---|---|
+| `GET /finance/society/setup` | State + accounts + vendors + progress, in one call |
+| `POST /finance/society/setup/complete` | Posts the OPENING voucher and stamps the policy, **in one transaction** |
+| `POST /finance/society/setup/reopen` | Only while `canReopen` |
+
+**Accounts are checked for kind, not just existence.** A bank balance entered against `2200 Sundry Creditors` would balance perfectly — 3900 absorbs the difference — and be wrong forever. Each section accepts only the right account types, and inactive accounts and vendors are refused.
+
+**Two clicks on Finish cannot double the opening balances.** The policy stamp is written inside the transaction with a filter requiring setup to still be unanswered; the loser gets a plain message rather than a second voucher.
+
+Enforced by `requireSetupComplete`, mounted once on the finance router rather than per-route — so a route added next year is gated by default instead of quietly slipping through. Open while setup is pending: `/setup`, `/settings`, `/policy`, `/modules`, `/import`, `/ledger/accounts`. **Not** `/ledger/journal` — gating expenses while leaving raw double-entry posting open would mean "record whatever you like, as long as you use the harder screen."
+
+### Behind a module toggle
+
+### Bulk expense entry
+
+Almost every cost a society carries repeats — the agency bill, electricity, the water tanker, the lift AMC, the gardener. `/dashboard/finance/expenses/bulk` records many at once, from a spreadsheet or by repeating last month.
+
+**Two shapes, asked in plain words at upload** — no clever grouping column, because the person filling the sheet is a manager, not an accountant:
+
+| Shape | For |
+|---|---|
+| Each row is a separate expense | Several different bills |
+| The whole file is one expense | The month's staff payments; one bill split across wings |
+
+**Names, not codes.** The `Head` column takes "Electricity", not `5120`. Codes still work. `Vendor`, `Block` and `Fund` resolve by name too, and headers are matched loosely (`particulars`, `amount rs`, `payee` all land correctly).
+
+**One bad row fails alone.** A misspelt vendor in row 40 does not throw away the other 39 — only a missing required *column* refuses the whole file.
+
+**Two warnings, both before the button:**
+
+- *You may already have recorded this.* An expense of the same total in the same month is flagged. **A warning, never a block** — a bonus or an arrear is legitimate; doing it silently is not, because the money genuinely leaves twice.
+- *You cannot approve your own.* If "already paid" is ticked and the society sets an approval threshold, whoever uploads is the creator and **cannot** approve above that figure. Those vouchers are created and left in the queue. Said up front rather than discovered in the result.
+
+**It does not reimplement posting.** Every voucher goes through `createExpense` → `approveExpense` → `payExpense`, so TDS, thresholds, wing tags, fund tags and voucher numbering behave exactly as they do on the single-expense screen. A spreadsheet does not get its own rules.
+
+`5200 Staff Payments` is seeded for direct employees — deliberately distinct from `5100 Security / Guard Charges` and `5110 Housekeeping`, which are what an *agency* charges. If a society already holds 5200 for something of its own, that meaning stands and the seed logs a warning rather than silently doing nothing.
+
+| Endpoint | Does |
+|---|---|
+| `GET /expenses/bulk/template` | A workbook pre-filled with this society's own heads and vendors |
+| `POST /expenses/bulk/preview` | Row-by-row result, totals, both warnings |
+| `POST /expenses/bulk/commit` | Creates the vouchers; pays them if "already paid" |
+| `GET /expenses/:id/repeat` | Last month's lines, ready to edit — no file needed |
+
 ### Behind a module toggle
 
 | Screen | Path | Module |
 |---|---|---|
 | Expenses | `/dashboard/finance/expenses` | `EXPENSES` |
+| Bulk Expense Entry | `/dashboard/finance/expenses/bulk` | `EXPENSES` |
 | Funds | `/dashboard/finance/funds` | `FUNDS` |
 | Refunds | `/dashboard/finance/refunds` | `REFUNDS` |
 | Members & Shares | `/dashboard/finance/shares` | `SHARES` |
@@ -717,6 +786,7 @@ An honest list. Nothing here is hidden behind optimistic wording.
 | **Society GSTIN/PAN on documents** | Both are captured in Settings but do not appear on an invoice or the GST register. **A GST-registered society's tax invoice legally requires its GSTIN** — if you are registered, check your invoice template before relying on it. | Not yet wired. |
 | **`meterType` on a charge head** | Cosmetic label only; metered billing matches readings by charge head, not by meter type. | Harmless. |
 | **Per-wing balance sheet** | Wing-wise reporting covers income and expenditure only. | Debtors-per-wing would need receipt-side wing tagging; nobody has asked. |
+| **Per-staff expense tracking** | `IExpenseLine` carries `fundId` and `blockId` but no `staffId`, so "how much did we pay Gangaram this year" cannot be answered — you can record the payment and name him in the note, but not group by him. | Deliberately deferred. There is no staff model yet, and a field pointing at a model that does not exist is precisely the declared-but-never-read bug this module has been bitten by a dozen times. Lands with the staff module — see `ROADMAP.md` Phase 5. |
 
 ### Deliberate non-features
 

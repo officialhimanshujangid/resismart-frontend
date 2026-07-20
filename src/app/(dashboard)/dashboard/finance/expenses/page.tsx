@@ -8,7 +8,7 @@ import {
   CircularProgress, TableContainer, Table, TableHead, TableBody, TableRow, TableCell,
   TablePagination, Paper, Zoom, FormControl, Select, MenuItem,
 } from '@mui/material';
-import { Plus, X, Users, CheckCircle2, Banknote, XCircle, Trash2 } from 'lucide-react';
+import { Plus, X, Users, CheckCircle2, Banknote, XCircle, Trash2, Upload } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 
 interface Vendor { _id: string; name: string; tdsApplicable?: boolean; tdsRatePercent?: number; }
@@ -119,6 +119,10 @@ export default function ExpensesPage() {
         </div>
         <div className="flex gap-2">
           <Button component={Link} href="/dashboard/finance/vendors" variant="outlined" startIcon={<Users className="w-4 h-4" />}>Vendors</Button>
+          {/* Recording one expense and recording twenty are the same job at two
+              sizes, so bulk entry sits here rather than as its own sidebar
+              entry a treasurer has to go hunting for. */}
+          <Button component={Link} href="/dashboard/finance/expenses/bulk" variant="outlined" startIcon={<Upload className="w-4 h-4" />}>Bulk entry</Button>
           <Button onClick={() => setCreateOpen(true)} variant="contained" startIcon={<Plus className="w-4 h-4" />}>Add Expense</Button>
         </div>
       </div>

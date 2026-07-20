@@ -9,7 +9,12 @@ import {
   Megaphone,
   ShieldCheck,
   Home,
-  Landmark
+  Landmark,
+  KeyRound,
+  DoorOpen,
+  HardHat,
+  MessageSquareWarning,
+  Wrench
 } from 'lucide-react';
 
 export interface SidebarLink {
@@ -31,6 +36,31 @@ export interface SidebarLink {
    * permission. Different question, different field.
    */
   financeModule?: string;
+  /**
+   * Hides this item unless the signed-in person's society role grants the
+   * module. A **third** field, and deliberately so:
+   *
+   *   moduleKey     — ResiSmart's own staff, platform-wide
+   *   financeModule — whether the SOCIETY uses a feature at all
+   *   accessModule  — whether THIS PERSON may use it
+   *
+   * A society can have complaints switched on, and still not want the
+   * gatekeeper to see them. Three questions, three fields.
+   *
+   * Convenience only. Every route enforces its own permission — a filtered
+   * menu is not a boundary, and this codebase already learned that the hard
+   * way with `PermissionRole`.
+   */
+  accessModule?: string;
+  /**
+   * Hides this item unless the society has switched the operations module on.
+   *
+   * The operations twin of `financeModule`. Kept separate rather than merged
+   * into one `module` field because the two lists are independent — a society
+   * can run finance without a gate, or a gate without finance — and one field
+   * holding both namespaces would make a typo in either silently hide a screen.
+   */
+  opsModule?: string;
 }
 
 /**
@@ -44,6 +74,43 @@ export const filterLinksByFinanceModules = (items: SidebarLink[], enabled: strin
   items.reduce<SidebarLink[]>((acc, link) => {
     if (link.financeModule && !enabled.includes(link.financeModule)) return acc;
     acc.push(link.children ? { ...link, children: filterLinksByFinanceModules(link.children, enabled) } : link);
+    return acc;
+  }, []);
+
+/**
+ * Drop operations screens the society has switched off.
+ *
+ * Same shape and same reasoning as `filterLinksByFinanceModules`, against the
+ * other module list. Untagged links always survive.
+ */
+export const filterLinksByOpsModules = (items: SidebarLink[], enabled: string[]): SidebarLink[] =>
+  items.reduce<SidebarLink[]>((acc, link) => {
+    if (link.opsModule && !enabled.includes(link.opsModule)) return acc;
+    acc.push(link.children ? { ...link, children: filterLinksByOpsModules(link.children, enabled) } : link);
+    return acc;
+  }, []);
+
+/**
+ * Drop screens this person's society role does not grant.
+ *
+ * `NONE` hides; `READ` and `FULL` both show — a view-only member should still
+ * find the screen, and the page itself greys out what they cannot change.
+ *
+ * The admin passes everything: `resolveAccess` hands them a FULL grid, so no
+ * special case is needed here. Untagged links (My Flat, notices, the resident's
+ * own bills) always survive — they are not governed by roles at all.
+ */
+export const filterLinksByAccess = (
+  items: SidebarLink[],
+  permissions: Record<string, string>,
+): SidebarLink[] =>
+  items.reduce<SidebarLink[]>((acc, link) => {
+    if (link.accessModule && (permissions[link.accessModule] ?? 'NONE') === 'NONE') return acc;
+    const next = link.children ? { ...link, children: filterLinksByAccess(link.children, permissions) } : link;
+    // A parent whose children were all filtered away is an empty menu that
+    // opens onto nothing — drop it rather than leave a dead heading.
+    if (next.children && next.children.length === 0 && !next.href) return acc;
+    acc.push(next);
     return acc;
   }, []);
 
@@ -159,7 +226,10 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         moduleKey: 'society_settings',
         children: [
           { label: 'Blocks', href: '/dashboard/blocks' },
-          { label: 'Flat Sizes', href: '/dashboard/flat-sizes' }
+          { label: 'Flat Sizes', href: '/dashboard/flat-sizes' },
+          // No accessModule: the page decides what each visitor may do, and a
+          // displaced admin has to be able to reach it in order to object.
+          { label: 'Admin Handover', href: '/dashboard/settings/admin-transfer' }
         ]
       },
       {
@@ -175,7 +245,69 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
       {
         label: 'Committee',
         icon: <Landmark className="w-5 h-5" />,
-        href: '/dashboard/committee'
+        href: '/dashboard/committee',
+        accessModule: 'COMMITTEE_MANAGE',
+      },
+      {
+        label: 'Who Can Do What',
+        icon: <KeyRound className="w-5 h-5" />,
+        href: '/dashboard/access-roles',
+        accessModule: 'ACCESS_MANAGE',
+      },
+      {
+        label: 'Gate',
+        icon: <DoorOpen className="w-5 h-5" />,
+        /**
+         * `opsModule` sits on the CHILDREN here, not on the group — and that
+         * is load-bearing rather than fussy.
+         *
+         * Operations Settings is where the modules themselves are switched on
+         * and off. Gate it on GATE, and an admin who turns the gate off has
+         * locked the only door back in: the screen that could undo it is the
+         * screen that just disappeared. So every gate screen is gated, and the
+         * settings page never is.
+         */
+        children: [
+          // The console itself is the guard's whole world, so it comes first
+          // and carries the permission a guard actually holds.
+          { label: 'Gate Console', href: '/dashboard/gate', opsModule: 'GATE', accessModule: 'GATE_CONSOLE' },
+          // No accessModule: answering comes from having been asked, not from a
+          // permission. A committee member with no gate rights still gets asked
+          // about their own visitors.
+          { label: 'Approvals', href: '/dashboard/gate/approvals', opsModule: 'GATE' },
+          { label: 'Scan a Pass', href: '/dashboard/gate/scan', opsModule: 'GATE', accessModule: 'GATE_CONSOLE' },
+          { label: 'Gate Records', href: '/dashboard/gate/log', opsModule: 'GATE', accessModule: 'GATE_LOGS' },
+          // Issuing is a resident's act, so this carries no permission — a
+          // committee member inviting their own guest is not doing gate work.
+          { label: 'Gate Passes', href: '/dashboard/gate/passes', opsModule: 'GATE' },
+          { label: 'My Preferences', href: '/dashboard/gate/preferences', opsModule: 'GATE' },
+          { label: 'Operations Settings', href: '/dashboard/gate/settings', accessModule: 'OPS_SETTINGS' },
+        ],
+      },
+      {
+        label: 'Staff',
+        icon: <HardHat className="w-5 h-5" />,
+        href: '/dashboard/staff',
+        opsModule: 'STAFF',
+        accessModule: 'STAFF_VIEW',
+      },
+      {
+        label: 'Complaints',
+        icon: <MessageSquareWarning className="w-5 h-5" />,
+        href: '/dashboard/complaints',
+        opsModule: 'COMPLAINTS',
+        // COMPLAINTS_OWN, not COMPLAINTS_MANAGE: a technician who only ever sees
+        // their own queue still needs the link. The page itself asks the server
+        // what to show, so a manager and a plumber land on the same href and
+        // get different lists.
+        accessModule: 'COMPLAINTS_OWN',
+      },
+      {
+        label: 'Equipment',
+        icon: <Wrench className="w-5 h-5" />,
+        href: '/dashboard/assets',
+        opsModule: 'ASSETS',
+        accessModule: 'COMPLAINTS_MANAGE',
       },
       {
         label: 'Resismart Housing',
@@ -207,6 +339,8 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
           { label: 'Post-dated Cheques', href: '/dashboard/finance/pdc', financeModule: 'PDC' },
           { label: 'Confirmations', href: '/dashboard/finance/confirmations', badgeKey: 'financePendingConfirmations' },
           { label: 'Refunds', href: '/dashboard/finance/refunds', financeModule: 'REFUNDS' },
+          // Bulk entry is a button ON the expenses page, not a sibling of it —
+          // "record one" and "record twenty" are the same job at two sizes.
           { label: 'Expenses', href: '/dashboard/finance/expenses', financeModule: 'EXPENSES' },
           { label: 'Vendors', href: '/dashboard/finance/vendors', financeModule: 'EXPENSES' },
           { label: 'Fixed Assets', href: '/dashboard/finance/assets', financeModule: 'ASSETS' },
@@ -218,8 +352,15 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
           { label: 'Members & Shares', href: '/dashboard/finance/shares', financeModule: 'SHARES' },
           { label: 'Charge Heads', href: '/dashboard/finance/charge-heads' },
           { label: 'Funds', href: '/dashboard/finance/funds', financeModule: 'FUNDS' },
-          { label: 'Opening Balances', href: '/dashboard/finance/opening-balances', financeModule: 'ACCOUNTING' },
-          { label: 'Bulk Import', href: '/dashboard/finance/bulk-import', financeModule: 'IMPORT' },
+          // ONE entry for everything a society says once: its opening position,
+          // its imported data, and the manual voucher for a treasurer who wants
+          // it. This used to be three separate links, and nobody could tell
+          // which of them they were supposed to be in.
+          //
+          // Deliberately NOT gated on a financeModule: it must stay reachable
+          // when every other finance screen is locked, because it is where a
+          // society lands when it cannot record anything yet.
+          { label: 'Setup & Opening Balances', href: '/dashboard/finance/setup' },
           { label: 'Chart of Accounts', href: '/dashboard/finance/chart-of-accounts', financeModule: 'ACCOUNTING' },
           { label: 'Vouchers & Journal', href: '/dashboard/finance/journal', financeModule: 'ACCOUNTING' },
           { label: 'Bank Reconciliation', href: '/dashboard/finance/bank-reconciliation', financeModule: 'BANKING' },
@@ -251,6 +392,26 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
           { label: 'Browse', href: '/dashboard/marketplace/browse' },
           { label: 'My Listings', href: '/dashboard/marketplace' },
           { label: 'Leads', href: '/dashboard/marketplace/leads' },
+        ],
+      },
+      {
+        label: 'Complaints',
+        icon: <MessageSquareWarning className="w-5 h-5" />,
+        href: '/dashboard/complaints',
+        opsModule: 'COMPLAINTS',
+        // No accessModule: a resident holds no AccessRole. The page shows them
+        // their own flat's complaints and the community ones, and the server
+        // decides that — not this menu.
+      },
+      {
+        label: 'Gate',
+        icon: <DoorOpen className="w-5 h-5" />,
+        opsModule: 'GATE',
+        children: [
+          { label: 'Approvals', href: '/dashboard/gate/approvals' },
+          { label: 'Invite Someone', href: '/dashboard/gate/passes' },
+          { label: 'Who Came', href: '/dashboard/gate/log' },
+          { label: 'My Preferences', href: '/dashboard/gate/preferences' },
         ],
       },
       {

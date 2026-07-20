@@ -5,6 +5,7 @@ import { useAuth, IContext } from '../../context/AuthContext';
 import { Button } from '../ui/button';
 import { useRouter } from 'next/navigation';
 import { ResiSmartLogo } from './ResiSmartLogo';
+import { NotificationBell } from './NotificationBell';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -109,6 +110,8 @@ export function Header({ setMobileOpen, setSwitching }: HeaderProps) {
       </div>
 
       <div className="flex items-center space-x-3 sm:space-x-5">
+        <NotificationBell />
+
         {/* Switch unit / workspace */}
         {otherContexts.length > 0 && (
           <DropdownMenu>

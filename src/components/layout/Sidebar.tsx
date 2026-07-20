@@ -10,7 +10,7 @@ import {
   ChevronRight,
   X
 } from 'lucide-react';
-import { getSidebarLinks, filterLinksByFinanceModules, SidebarLink } from './sidebarContent';
+import { getSidebarLinks, filterLinksByFinanceModules, filterLinksByOpsModules, filterLinksByAccess, SidebarLink } from './sidebarContent';
 import { ResiSmartLogo } from './ResiSmartLogo';
 
 interface SidebarProps {
@@ -27,6 +27,10 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
   // null = not answered yet. Distinct from an empty list, which is a real answer
   // meaning "this society uses none of the optional modules".
   const [financeModules, setFinanceModules] = useState<string[] | null>(null);
+  // null = not answered yet, same reasoning as financeModules above: filtering
+  // on a half-loaded answer flashes a truncated menu.
+  const [accessPermissions, setAccessPermissions] = useState<Record<string, string> | null>(null);
+  const [opsModules, setOpsModules] = useState<string[] | null>(null);
 
   const role = activeProfile?.role;
 
@@ -55,14 +59,49 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
 
   useEffect(() => loadFinanceModules(), [loadFinanceModules]);
 
+  // What THIS person may do — distinct from what the society has switched on.
+  // On failure we filter nothing: the routes refuse anyway, so the worst case
+  // is a link that 403s, which is far better than hiding a screen someone needs
+  // because one request happened to fail.
+  useEffect(() => {
+    if (!role?.startsWith('SOCIETY_')) { setAccessPermissions(null); return; }
+    let cancelled = false;
+    api.get('/access-roles/me')
+      .then(res => { if (!cancelled) setAccessPermissions(res.data?.data?.permissions || null); })
+      .catch(() => { if (!cancelled) setAccessPermissions(null); });
+    return () => { cancelled = true; };
+  }, [role]);
+
+  // Which optional operations screens this society uses. Same fail-open rule as
+  // finance: a menu that is too long is a nuisance, one missing the screen you
+  // need is a fault.
+  const loadOpsModules = useCallback(() => {
+    // Residents included, deliberately: they have Complaints in their menu, and
+    // it has to disappear when the society switches the module off. This is the
+    // cut-down endpoint, so nobody reads gate settings just to draw a menu.
+    if (!role?.startsWith('SOCIETY_') && !role?.startsWith('RESIDENT_') && role !== 'FAMILY_MEMBER') {
+      setOpsModules(null); return;
+    }
+    api.get('/gate/modules')
+      .then(res => setOpsModules(res.data?.data?.modules || null))
+      .catch(() => setOpsModules(null));
+  }, [role]);
+
+  useEffect(() => { loadOpsModules(); }, [loadOpsModules]);
+
   // The menu has to change the moment the admin saves, not on their next hard
   // reload — a toggle that appears to do nothing reads as broken. Same window-event
   // pattern the API layer already uses for 'auth-logout'.
   useEffect(() => {
-    const refetch = () => { loadFinanceModules(); };
-    window.addEventListener('finance-modules-changed', refetch);
-    return () => window.removeEventListener('finance-modules-changed', refetch);
-  }, [loadFinanceModules]);
+    const refetchFinance = () => { loadFinanceModules(); };
+    const refetchOps = () => { loadOpsModules(); };
+    window.addEventListener('finance-modules-changed', refetchFinance);
+    window.addEventListener('ops-modules-changed', refetchOps);
+    return () => {
+      window.removeEventListener('finance-modules-changed', refetchFinance);
+      window.removeEventListener('ops-modules-changed', refetchOps);
+    };
+  }, [loadFinanceModules, loadOpsModules]);
 
   const toggleMenu = (label: string, depth: number) => {
     setExpandedMenus(prev => {
@@ -106,9 +145,17 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
       ? filterLinksByPermissions(rawLinks, employeePermissions)
       : rawLinks;
 
-  const links: SidebarLink[] = financeModules
+  const moduleFiltered: SidebarLink[] = financeModules
     ? filterLinksByFinanceModules(permissionFiltered, financeModules)
     : permissionFiltered;
+
+  const opsFiltered: SidebarLink[] = opsModules
+    ? filterLinksByOpsModules(moduleFiltered, opsModules)
+    : moduleFiltered;
+
+  const links: SidebarLink[] = accessPermissions
+    ? filterLinksByAccess(opsFiltered, accessPermissions)
+    : opsFiltered;
 
   const badgeCounts: Record<string, number> = { financePendingConfirmations: pendingConfirmations };
 
