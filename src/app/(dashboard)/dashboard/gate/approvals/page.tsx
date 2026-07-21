@@ -224,7 +224,7 @@ export default function GateApprovalsPage() {
       <Dialog open={!!overrideOf} onClose={() => setOverrideOf(null)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
         <DialogTitle className="!font-black !text-slate-900">Decide without waiting</DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <p className="text-sm text-slate-600">
             {overrideOf?.flatLabel || 'The flat'} has not answered about <b>{overrideOf?.visitorName}</b>.
           </p>

@@ -235,7 +235,7 @@ export default function AdminTransferPage() {
       <Dialog open={startOpen} onClose={() => setStartOpen(false)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
         <DialogTitle className="!font-black !text-slate-900">Hand over the admin role</DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <TextField autoFocus fullWidth size="small" label="Their user ID"
             value={form.toUserId || ''} onChange={e => setForm({ ...form, toUserId: e.target.value })}
             helperText="From the members list. They confirm with a code sent to their own contact." />
@@ -272,7 +272,7 @@ export default function AdminTransferPage() {
       <Dialog open={codeOpen} onClose={() => setCodeOpen(false)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
         <DialogTitle className="!font-black !text-slate-900">Confirm the handover</DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <p className="text-sm text-slate-600">
             Enter the code sent to your registered contact.
           </p>

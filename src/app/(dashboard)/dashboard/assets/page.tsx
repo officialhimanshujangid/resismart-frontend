@@ -230,7 +230,7 @@ export default function AssetsPage() {
       <Dialog open={addOpen} onClose={() => setAddOpen(false)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
         <DialogTitle className="!font-black !text-slate-900">{form._id ? 'Edit equipment' : 'Add equipment'}</DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <TextField autoFocus fullWidth size="small" label="What is it called?" value={form.name}
             onChange={e => setForm({ ...form, name: e.target.value })}
             helperText="Something the person standing in front of it would recognise — 'Lift 2', not 'Elevator Unit B'" />
@@ -272,7 +272,7 @@ export default function AssetsPage() {
       <Dialog open={!!qrOf} onClose={() => setQrOf(null)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
         <DialogTitle className="!font-black !text-slate-900">{qrOf?.name}</DialogTitle>
-        <DialogContent dividers className="space-y-4">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <div className="text-center">
             {qrData && <img src={qrData} alt="QR code" className="mx-auto rounded-xl border border-slate-200" />}
             <p className="font-black text-slate-800 mt-3">{qrOf?.name}</p>

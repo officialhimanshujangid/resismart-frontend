@@ -221,7 +221,7 @@ export default function VehiclesPage() {
       <Dialog open={adding} onClose={() => setAdding(false)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
         <DialogTitle className="!font-black !text-slate-900">Add a vehicle</DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <Autocomplete
             size="small" options={flats} value={form.flat}
             getOptionLabel={o => o.label}

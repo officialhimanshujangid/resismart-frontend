@@ -11,7 +11,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       {/* Sticky branded header */}
       <header className="sticky top-0 z-50 backdrop-blur-md border-b"
         style={{ background: 'rgba(255,255,255,0.85)', borderColor: 'var(--mkt-line)' }}>
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-2 sm:gap-4">
+        <div className="max-w-auto mx-auto px-4 h-16 flex items-center justify-between gap-2 sm:gap-4">
           {/* Logo */}
           <Link href="/property-marketplace" className="flex items-center gap-1.5 sm:gap-2 font-black text-lg min-w-0" aria-label="ResiSmart Homes">
             <img src="/resismartlogo.png" alt="ResiSmart" className="h-6 sm:h-8 w-auto object-contain shrink-0" />
@@ -26,11 +26,11 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       </header>
 
       {/* Page content */}
-      <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>
+      <main className="max-w-auto mx-auto px-4 py-6">{children}</main>
 
       {/* Footer */}
       <footer className="border-t mt-16 py-10" style={{ borderColor: 'var(--mkt-line)', background: 'var(--mkt-surface)' }}>
-        <div className="max-w-7xl mx-auto px-4">
+        <div className="max-w-auto mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center md:items-start justify-between gap-6">
             <div>
               <div className="flex items-center gap-2 font-black text-base mb-2" style={{ color: 'var(--mkt-ink-soft)' }}>

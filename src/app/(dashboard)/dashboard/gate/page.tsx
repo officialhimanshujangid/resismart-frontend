@@ -332,7 +332,7 @@ export default function GateConsolePage() {
           {t.whoIsHere}
           <Button onClick={() => setOpen(false)} className="!min-w-0 !p-1"><X className="w-5 h-5 text-slate-400" /></Button>
         </DialogTitle>
-        <DialogContent dividers className="space-y-4">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">They are a</span>
             <div className="mt-1.5 flex flex-wrap gap-1.5">

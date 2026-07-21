@@ -398,7 +398,7 @@ export default function StaffPage() {
         <DialogTitle className="!font-black !text-slate-900">
           {form._id ? `Edit ${form.name}` : 'Add someone'}
         </DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <TextField autoFocus fullWidth size="small" label="Name" value={form.name}
             onChange={e => setForm({ ...form, name: e.target.value })} />
           <TextField fullWidth size="small" label="Phone" value={form.phone}
@@ -469,7 +469,7 @@ export default function StaffPage() {
               className="!rounded-xl !normal-case !font-bold !text-xs shrink-0">Edit details</Button>
           )}
         </DialogTitle>
-        <DialogContent dividers className="space-y-4">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           {/* Login — the thing that makes their access role and notifications
               actually work. Without it, a role is set and never takes effect. */}
           {detailOf?.isActive && (

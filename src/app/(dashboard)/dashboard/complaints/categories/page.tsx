@@ -147,7 +147,7 @@ export default function ComplaintCategoriesPage() {
         <DialogTitle className="!font-black !text-slate-900">
           {editing?._id ? 'Edit category' : 'Add category'}
         </DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <TextField autoFocus fullWidth size="small" label="Name" value={editing?.category || ''}
             onChange={e => setEditing({ ...editing, category: e.target.value })}
             placeholder="Plumbing" />

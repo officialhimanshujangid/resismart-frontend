@@ -229,7 +229,7 @@ export default function BlocklistPage() {
       <Dialog open={adding} onClose={() => setAdding(false)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
         <DialogTitle className="!font-black !text-slate-900">Block somebody</DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <FormControl fullWidth size="small">
             <InputLabel>Block on</InputLabel>
             <Select label="Block on" value={form.basis}

@@ -14,7 +14,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <ProtectedRoute>
       <div className="h-screen overflow-hidden bg-slate-100 flex flex-col text-slate-800 font-sans selection:bg-[#0a5bd7]/20">
-        
+
         {/* Context Switching Overlay */}
         {switching && (
           <div className="fixed inset-0 bg-white/80 backdrop-blur-md z-[9999] flex flex-col items-center justify-center space-y-4 animate-in fade-in duration-200">
@@ -26,17 +26,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
 
         <div className="flex-1 flex overflow-hidden">
-          
+
           <Sidebar mobileOpen={sidebarOpen} setMobileOpen={setSidebarOpen} />
 
           {/* Main Content Area */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-            
+
             <Header setMobileOpen={setSidebarOpen} setSwitching={setSwitching} />
 
             {/* Scrollable Dashboard Viewport */}
             <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 bg-slate-100/50">
-              <div className="max-w-7xl mx-auto space-y-6">
+              <div className="max-w-auto mx-auto space-y-6">
                 <React.Suspense fallback={<BrandLoader variant="inline" />}>
                   {children}
                 </React.Suspense>

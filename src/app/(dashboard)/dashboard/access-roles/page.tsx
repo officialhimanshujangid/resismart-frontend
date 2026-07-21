@@ -304,7 +304,7 @@ export default function AccessRolesPage() {
         <DialogTitle className="!font-black !text-slate-900">
           {editing?._id ? `Edit "${editing.name}"` : 'New role'}
         </DialogTitle>
-        <DialogContent dividers className="space-y-4">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <div className="grid sm:grid-cols-2 gap-3">
             <TextField label="Name" size="small" fullWidth value={editing?.name || ''}
               disabled={editing?.isSystem}

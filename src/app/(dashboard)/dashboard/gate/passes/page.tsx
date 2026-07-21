@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import api from '@/lib/api';
 import {
   Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Select, MenuItem, FormControl, InputLabel, Chip,
+  TextField, Select, MenuItem, FormControl, InputLabel, Chip, Tooltip,
 } from '@mui/material';
 import { Plus, Ticket, Share2, Ban, TriangleAlert, Copy, Download } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
@@ -251,10 +251,14 @@ export default function GatePassesPage() {
         icon={<Ticket className="w-4.5 h-4.5" />}
         subtitle="Invite someone before they arrive. The guard scans or types the code — nobody has to call you."
         actions={
-          <Button variant="contained" startIcon={<Plus className="w-4 h-4" />} onClick={() => setOpen(true)}
-            disabled={!flatIds.length} className="!rounded-xl !normal-case !font-bold">
-            Invite someone
-          </Button>
+          <Tooltip title={!flatIds.length ? "Gate passes belong to a home. Ask the society office to link your flat." : ""}>
+            <span>
+              <Button variant="contained" startIcon={<Plus className="w-4 h-4" />} onClick={() => setOpen(true)}
+                disabled={!flatIds.length} className="!rounded-xl !normal-case !font-bold">
+                Invite someone
+              </Button>
+            </span>
+          </Tooltip>
         }
       />
 
@@ -282,7 +286,7 @@ export default function GatePassesPage() {
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
         <DialogTitle className="!font-black !text-slate-900">Invite someone</DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <TextField autoFocus fullWidth size="small" label="Who is coming?" value={form.visitorName || ''}
             onChange={e => setForm({ ...form, visitorName: e.target.value })} />
           <TextField fullWidth size="small" label="Their phone (optional)" value={form.visitorPhone || ''}

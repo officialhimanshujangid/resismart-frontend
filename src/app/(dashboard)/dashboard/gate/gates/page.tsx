@@ -216,7 +216,7 @@ export default function GatesPage() {
       <Dialog open={!!editing} onClose={() => setEditing(null)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
         <DialogTitle className="!font-black !text-slate-900">{editing?._id ? 'Edit gate' : 'Add gate'}</DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <div className="flex gap-2">
             <TextField size="small" label="Code" value={editing?.code || ''} className="w-28"
               onChange={e => setEditing({ ...editing, code: e.target.value })} placeholder="G2" />

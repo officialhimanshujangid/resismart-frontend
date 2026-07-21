@@ -381,7 +381,7 @@ export default function ComplaintsPage() {
       <Dialog open={raiseOpen} onClose={() => setRaiseOpen(false)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
         <DialogTitle className="!font-black !text-slate-900">Report a problem</DialogTitle>
-        <DialogContent dividers className="space-y-3">
+        <DialogContent dividers className="flex flex-col gap-4 pt-2">
           <ToggleButtonGroup exclusive size="small" fullWidth value={form.kind}
             onChange={(_, v) => v && setForm({ ...form, kind: v })}>
             <ToggleButton value="SERVICE" className="!rounded-l-xl !normal-case !text-xs !font-bold">Something is broken</ToggleButton>
@@ -450,7 +450,7 @@ export default function ComplaintsPage() {
                 {c!.ticketCode} · {c!.category} · raised by {c!.raisedByName} {ago(c!.createdAt)}
               </span>
             </DialogTitle>
-            <DialogContent dividers className="space-y-4">
+            <DialogContent dividers className="flex flex-col gap-4 pt-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <Chip size="small" label={pretty(c!.status)} className={`!font-bold !text-[11px] ${STATUS_STYLE[c!.status] || ''}`} />
                 {c!.pausedAt && (

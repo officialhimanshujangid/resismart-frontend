@@ -49,7 +49,7 @@ export interface SidebarLink {
    * menu is not a boundary, and this codebase already learned that the hard
    * way with `PermissionRole`.
    */
-  accessModule?: string;
+  accessModule?: string | string[];
   /**
    * Hides this item unless the society has switched the operations module on.
    *
@@ -103,7 +103,10 @@ export const filterLinksByAccess = (
   permissions: Record<string, string>,
 ): SidebarLink[] =>
   items.reduce<SidebarLink[]>((acc, link) => {
-    if (link.accessModule && (permissions[link.accessModule] ?? 'NONE') === 'NONE') return acc;
+    if (link.accessModule) {
+      const modules = Array.isArray(link.accessModule) ? link.accessModule : [link.accessModule];
+      if (!modules.some(m => (permissions[m] ?? 'NONE') !== 'NONE')) return acc;
+    }
     const next = link.children ? { ...link, children: filterLinksByAccess(link.children, permissions) } : link;
     // A parent whose children were all filtered away is an empty menu that
     // opens onto nothing — drop it rather than leave a dead heading.
@@ -245,11 +248,12 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
   // person hunting for Charge Heads scrolled past Bank Reconciliation either
   // way. Grouping costs one click and makes the menu readable at a glance.
   if (role.startsWith('SOCIETY_')) {
-    return [
+    const rawLinks: SidebarLink[] = [
       ...defaultLinks,
       {
         label: 'Property',
         icon: <Building className="w-5 h-5" />,
+        accessModule: 'RESIDENTS_VIEW',
         children: [
           { label: 'Flats', href: '/dashboard/flats' },
           { label: 'Blocks', href: '/dashboard/blocks' },
@@ -277,16 +281,16 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
               // No accessModule: answering comes from having been asked, not from a
               // permission. A committee member with no gate rights still gets asked
               // about their own visitors.
-              { label: 'Visitor Approvals', href: '/dashboard/gate/approvals' },
+              { label: 'Visitor Approvals', href: '/dashboard/gate/approvals', permittedUserType: ['SOCIETY_ADMIN', 'SOCIETY_COMMITTEE'] },
               { label: 'Scan a Pass', href: '/dashboard/gate/scan', accessModule: 'GATE_CONSOLE' },
               { label: 'Gate Records', href: '/dashboard/gate/log', accessModule: 'GATE_LOGS' },
               // Issuing is a resident's act, so this carries no permission — a
               // committee member inviting their own guest is not doing gate work.
-              { label: 'Gate Passes', href: '/dashboard/gate/passes' },
+              { label: 'Gate Passes', href: '/dashboard/gate/passes', permittedUserType: ['SOCIETY_ADMIN', 'SOCIETY_COMMITTEE'] },
               { label: 'Resident Vehicles', href: '/dashboard/gate/vehicles', accessModule: 'GATE_CONSOLE' },
               { label: 'Blocklist', href: '/dashboard/gate/blocklist', accessModule: 'GATE_CONSOLE' },
               { label: 'Gates', href: '/dashboard/gate/gates', accessModule: 'GATE_CONSOLE' },
-              { label: 'My Preferences', href: '/dashboard/gate/preferences' },
+              { label: 'My Preferences', href: '/dashboard/gate/preferences', permittedUserType: ['SOCIETY_ADMIN', 'SOCIETY_COMMITTEE'] },
             ],
           },
           {
@@ -302,11 +306,10 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
             label: 'Complaints',
             href: '/dashboard/complaints',
             opsModule: 'COMPLAINTS',
-            // COMPLAINTS_OWN, not COMPLAINTS_MANAGE: a technician who only ever sees
-            // their own queue still needs the link. The page itself asks the server
-            // what to show, so a manager and a plumber land on the same href and
-            // get different lists.
-            accessModule: 'COMPLAINTS_OWN',
+            // COMPLAINTS_OWN or COMPLAINTS_MANAGE: a technician who only ever sees
+            // their own queue still needs the link, but so does a manager who only oversees.
+            // The page itself asks the server what to show.
+            accessModule: ['COMPLAINTS_OWN', 'COMPLAINTS_MANAGE'],
           },
           {
             label: 'Complaint Categories',
@@ -345,6 +348,7 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
       {
         label: 'Finance',
         icon: <Landmark className="w-5 h-5" />,
+        accessModule: 'FINANCE_VIEW',
         children: [
           {
             label: 'Day to Day',
@@ -405,6 +409,7 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
       {
         label: 'Resismart Housing',
         icon: <Megaphone className="w-5 h-5" />,
+        permittedUserType: ['SOCIETY_ADMIN', 'SOCIETY_COMMITTEE'],
         children: [
           { label: 'Browse', href: '/dashboard/marketplace/browse' },
           { label: 'My Listings', href: '/dashboard/marketplace' },
@@ -420,8 +425,8 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
           { label: 'Who Can Do What', href: '/dashboard/access-roles', accessModule: 'ACCESS_MANAGE' },
           // No accessModule: the page decides what each visitor may do, and a
           // displaced admin has to be able to reach it in order to object.
-          { label: 'Admin Handover', href: '/dashboard/settings/admin-transfer' },
-          { label: 'Billing & Subscription', href: '/dashboard/billing' },
+          { label: 'Admin Handover', href: '/dashboard/settings/admin-transfer', permittedUserType: ['SOCIETY_ADMIN', 'SOCIETY_COMMITTEE'] },
+          { label: 'Billing & Subscription', href: '/dashboard/billing', permittedUserType: ['SOCIETY_ADMIN', 'SOCIETY_COMMITTEE'] },
         ],
       },
       {
@@ -430,6 +435,7 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         href: '/dashboard/notifications',
       },
     ];
+    return filterLinksByUserType(rawLinks, role);
   }
 
   // Resident (flat owner / tenant / family) links
