@@ -12,10 +12,11 @@ import {
 } from '@mui/material';
 import {
   Home, ShieldCheck, Crown, CircleUser, Users, Activity, Mail, Phone, CalendarDays,
-  MapPin, Ruler, UserPlus, FileText, KeyRound,
+  MapPin, Ruler, UserPlus, FileText, KeyRound, Car,
 } from 'lucide-react';
 import FlatLifecycleManager, { FlatLifecycleManagerHandle } from '@/components/flats/FlatLifecycleManager';
 import FlatDocuments from '@/components/flats/FlatDocuments';
+import MyVehicles from './MyVehicles';
 
 interface Member {
   _id: string; name: string; email: string | null; phone: string | null;
@@ -55,7 +56,7 @@ export default function MyFlatPage() {
   const [data, setData] = useState<MyFlat | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFlat, setNotFlat] = useState(false);
-  const [tab, setTab] = useState<'household' | 'documents' | 'timeline'>('household');
+  const [tab, setTab] = useState<'household' | 'vehicles' | 'documents' | 'timeline'>('household');
 
   const lifecycleRef = useRef<FlatLifecycleManagerHandle>(null);
 
@@ -203,6 +204,9 @@ export default function MyFlatPage() {
         <Grid size={{ xs: 12, md: 8 }}>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
             <Tab value="household" label={`Household (${active.length})`} icon={<Users className="w-4 h-4" />} iconPosition="start" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 48 }} />
+            {/* Everyone in the flat, owner or tenant: it is their own car, and
+                the register is what stops the gate logging it as a visitor. */}
+            <Tab value="vehicles" label="Vehicles" icon={<Car className="w-4 h-4" />} iconPosition="start" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 48 }} />
             {/* Not shown to a tenant: these are the flat's title papers, and a
                 sale deed carries the owner's purchase price. The tenant's own
                 documents live under the tenancy section. The server refuses
@@ -239,6 +243,10 @@ export default function MyFlatPage() {
                 </div>
               ))}
             </div>
+          )}
+
+          {tab === 'vehicles' && (
+            <MyVehicles flatId={flat._id} flatLabel={`${flat.blockName || ''} ${flat.number}`.trim()} />
           )}
 
           {/* Residents may read their flat's papers but not change them — a sale

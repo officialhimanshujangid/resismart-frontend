@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
-import { CircularProgress, Alert, Button, Tooltip, Chip } from '@mui/material';
+import { Alert, Button, Tooltip, Chip } from '@mui/material';
 import { Users, AlertTriangle, ArrowRight, CheckCircle2 } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
+import PageSkeleton from '@/components/common/PageSkeleton';
+import ErrorState from '@/components/common/ErrorState';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 
 /**
@@ -45,20 +47,23 @@ export default function CoveragePage() {
   const [loading, setLoading] = useState(true);
   const [m, setM] = useState<Matrix | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.get('/staff/coverage');
-        setM(res.data?.data || null);
-      } catch (e: any) {
-        showToast(e.response?.data?.message || 'Could not work out who covers what', 'error');
-      } finally { setLoading(false); }
-    })();
-    /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, []);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/staff/coverage');
+      setM(res.data?.data || null);
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not work out who covers what', 'error');
+    } finally { setLoading(false); }
+  }, [showToast]);
 
-  if (loading) return <div className="flex justify-center py-24"><CircularProgress /></div>;
-  if (!m) return null;
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <PageSkeleton />;
+  // This used to `return null`, which renders a blank white page — the same
+  // thing a society with no staff at all would see, so a failure was
+  // indistinguishable from "you have nobody".
+  if (!m) return <ErrorState message="Who covers what could not be worked out." onRetry={load} />;
 
   const at = (category: string, scopeKey: string) =>
     m.cells.find(c => c.category === category && c.scopeKey === scopeKey);
@@ -79,16 +84,16 @@ export default function CoveragePage() {
         actions={
           <Button variant="outlined" endIcon={<ArrowRight className="w-4 h-4" />}
             onClick={() => router.push('/dashboard/staff')}
-            className="!rounded-xl !normal-case !font-bold">Manage staff</Button>
+          >Manage staff</Button>
         }
       />
 
       {m.gaps.length === 0 ? (
-        <Alert severity="success" icon={<CheckCircle2 className="w-5 h-5" />} className="!rounded-2xl !text-sm">
+        <Alert severity="success" icon={<CheckCircle2 className="w-5 h-5" />} sx={{ borderRadius: '16px', fontSize: 14 }}>
           Every kind of work has somebody for every wing. No complaint will land unassigned.
         </Alert>
       ) : (
-        <Alert severity="warning" icon={<AlertTriangle className="w-5 h-5" />} className="!rounded-2xl !text-sm">
+        <Alert severity="warning" icon={<AlertTriangle className="w-5 h-5" />} sx={{ borderRadius: '16px', fontSize: 14 }}>
           <strong>{m.gaps.length} {m.gaps.length === 1 ? 'gap' : 'gaps'}.</strong>{' '}
           A complaint raised for any of these reaches nobody and waits in the unassigned queue until
           somebody notices. Assign a staff member from their profile, or give one person the whole society.
@@ -138,7 +143,7 @@ export default function CoveragePage() {
                           ))}
                           {cell?.backup.map(b => (
                             <div key={b.staffId} className="text-[11px] text-slate-500">
-                              {b.staffName} <Chip size="small" label="backup" className="!h-3.5 !text-[9px] !bg-slate-100" />
+                              {b.staffName} <Chip size="small" label="backup" sx={{ height: 16, fontSize: 9, bgcolor: "#f1f5f9", color: "#64748b" }} />
                             </div>
                           ))}
                         </div>

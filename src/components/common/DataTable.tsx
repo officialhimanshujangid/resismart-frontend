@@ -5,6 +5,7 @@ import {
   Menu, MenuItem, ListItemText, IconButton, Tooltip,
 } from '@mui/material';
 import { Inbox, Download, Columns3 } from 'lucide-react';
+import MobileCardList from './MobileCardList';
 
 /**
  * The one table.
@@ -73,6 +74,20 @@ interface DataTableProps<T> {
   exportFileName?: string;
   /** Let the reader hide columns they do not care about. */
   columnToggle?: boolean;
+  /**
+   * Below `sm`, show cards instead of a side-scrolling table.
+   *
+   * **Opt-in, and off by default on purpose.** Every screen in the product
+   * already renders this table; switching the phone layout on for all of them
+   * at once would change forty screens nobody asked about in the same commit.
+   * A screen turns it on when somebody has looked at that screen on a phone.
+   *
+   * `true` uses the first visible column as the card heading — which is the
+   * identifying column on every screen here. Pass the object form when the
+   * first column is a serial number or a checkbox-ish thing and the real name
+   * of the row is further along.
+   */
+  mobileCards?: boolean | { titleColumn?: string; subtitleColumn?: string };
 }
 
 type SortDir = 'asc' | 'desc';
@@ -99,6 +114,7 @@ export function DataTable<T>({
   bulkActions,
   exportFileName,
   columnToggle,
+  mobileCards = false,
 }: DataTableProps<T>) {
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -186,6 +202,34 @@ export function DataTable<T>({
   const skeletonCount = Math.min(pagination?.pageSize || 8, 8);
   const pickedCount = rows.filter(r => selected.has(keyExtractor(r))).length;
 
+  const pick = (key: string) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+
+  const cardOpts = typeof mobileCards === 'object' ? mobileCards : {};
+
+  /**
+   * The empty state, written once and rendered by both layouts.
+   *
+   * It used to live inline in a `TableCell`, which meant the card list either
+   * copied the words or said something different from the table for the same
+   * situation — and "no records found" vs a helpful sentence is exactly the
+   * difference this component was built to stop.
+   */
+  const emptyBlock = (
+    <div className="flex flex-col items-center justify-center gap-3 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-200/70 flex items-center justify-center text-slate-400">
+        {emptyIcon || <Inbox className="w-6 h-6" />}
+      </div>
+      <div className="space-y-0.5">
+        <p className="text-slate-700 font-bold text-sm">{emptyTitle || emptyText}</p>
+        {emptyTitle && <p className="text-slate-400 text-xs">{emptyText}</p>}
+      </div>
+    </div>
+  );
+
   return (
     <div className="w-full space-y-2">
       {(toolbar || exportFileName || columnToggle) && (
@@ -237,6 +281,44 @@ export function DataTable<T>({
         </div>
       )}
 
+      {/*
+        Cards below `sm`, the table from `sm` up — switched by CSS rather than
+        by measuring the window.
+        A `useMediaQuery` here would render the table first on the server and
+        on the client's first paint, so a phone would flash a side-scrolling
+        table and then swap; worse, any mismatch between the two renders is a
+        hydration error. CSS costs a second pass over the cell renderers, and
+        only on screens that asked for cards.
+      */}
+      {mobileCards && (
+        <div className="sm:hidden space-y-2">
+          {bulkActions && !loading && rows.length > 0 && (
+            <label className="flex items-center gap-1.5 px-1 cursor-pointer">
+              <Checkbox size="small" checked={allPicked} indeterminate={somePicked} onChange={pickAll} />
+              <span className="text-xs font-bold text-slate-500">Select all on this page</span>
+            </label>
+          )}
+          <MobileCardList
+            columns={shown}
+            data={rows}
+            keyExtractor={keyExtractor}
+            loading={loading}
+            refetching={refetching}
+            skeletonCount={skeletonCount}
+            onRowClick={onRowClick}
+            titleColumn={cardOpts.titleColumn}
+            subtitleColumn={cardOpts.subtitleColumn}
+            selection={bulkActions ? { selected, onToggle: pick } : undefined}
+            empty={
+              <Paper elevation={0} className="rounded-2xl border border-slate-200/60 py-14 shadow-sm">
+                {emptyBlock}
+              </Paper>
+            }
+          />
+        </div>
+      )}
+
+      <div className={mobileCards ? 'hidden sm:block' : undefined}>
       <TableContainer component={Paper} elevation={0} className="border border-slate-200/60 rounded-2xl overflow-hidden shadow-sm">
         <Table>
           <TableHead className="bg-slate-50 border-b border-slate-200/60">
@@ -276,15 +358,7 @@ export function DataTable<T>({
             ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={shown.length + (bulkActions ? 1 : 0)} className="py-16">
-                  <div className="flex flex-col items-center justify-center gap-3 text-center">
-                    <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-200/70 flex items-center justify-center text-slate-400">
-                      {emptyIcon || <Inbox className="w-6 h-6" />}
-                    </div>
-                    <div className="space-y-0.5">
-                      <p className="text-slate-700 font-bold text-sm">{emptyTitle || emptyText}</p>
-                      {emptyTitle && <p className="text-slate-400 text-xs">{emptyText}</p>}
-                    </div>
-                  </div>
+                  {emptyBlock}
                 </TableCell>
               </TableRow>
             ) : (
@@ -300,11 +374,7 @@ export function DataTable<T>({
                       // the row — which is maddening when picking twenty of them.
                       <TableCell padding="checkbox" onClick={e => e.stopPropagation()}>
                         <Checkbox size="small" checked={selected.has(key)}
-                          onChange={() => setSelected(prev => {
-                            const next = new Set(prev);
-                            next.has(key) ? next.delete(key) : next.add(key);
-                            return next;
-                          })} />
+                          onChange={() => pick(key)} />
                       </TableCell>
                     )}
                     {shown.map((col) => (
@@ -319,6 +389,7 @@ export function DataTable<T>({
           </TableBody>
         </Table>
       </TableContainer>
+      </div>
 
       {pagination && (
         <TablePagination

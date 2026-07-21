@@ -4,10 +4,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { Button, CircularProgress, Chip, ToggleButton, ToggleButtonGroup } from '@mui/material';
-import { Bell, BellOff, Check, ChevronDown } from 'lucide-react';
+import { Bell, BellOff, Check, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
 import EmptyState from '@/components/common/EmptyState';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
+import NotificationPreferences from './NotificationPreferences';
 
 /**
  * Everything that has been sent to you.
@@ -57,15 +58,24 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [more, setMore] = useState(false);
   const [exhausted, setExhausted] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  /**
+   * One control, three views. The settings live on this page rather than behind
+   * a link because the moment somebody wants to turn a notification off is the
+   * moment they are reading it — a separate screen in a menu is one they find
+   * only after they have already stopped reading.
+   */
+  const [tab, setTab] = useState<'all' | 'unread' | 'settings'>('all');
 
   const load = useCallback(async (before?: string) => {
+    // Nothing to fetch while the settings are open, and fetching anyway would
+    // reset the unread badge under a reader who is not looking at the list.
+    if (tab === 'settings') { setLoading(false); return; }
     const first = !before;
     first ? setLoading(true) : setMore(true);
     try {
       const qs = new URLSearchParams({ limit: String(PAGE) });
       if (before) qs.set('before', before);
-      if (filter === 'unread') qs.set('unread', 'true');
+      if (tab === 'unread') qs.set('unread', 'true');
       const res = await api.get(`/notifications?${qs}`);
       const batch: Item[] = res.data?.data?.items || [];
       setUnread(res.data?.data?.unread || 0);
@@ -76,7 +86,7 @@ export default function NotificationsPage() {
     } catch (e: any) {
       showToast(e.response?.data?.message || 'Could not load your notifications', 'error');
     } finally { setLoading(false); setMore(false); }
-  }, [filter, showToast]);
+  }, [tab, showToast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -104,30 +114,35 @@ export default function NotificationsPage() {
       <PageHeader
         title="Notifications"
         icon={<Bell className="w-4.5 h-4.5" />}
-        subtitle="Everything the society has sent you — gate arrivals waiting on your answer, complaints, dues and committee decisions."
-        actions={unread > 0 ? (
+        subtitle="Everything the society has sent you — visitors waiting on your answer, complaints, dues and committee decisions."
+        actions={unread > 0 && tab !== 'settings' ? (
           <Button variant="outlined" startIcon={<Check className="w-4 h-4" />} onClick={markAllRead}
             className="!rounded-xl !normal-case !font-bold">Mark all read</Button>
         ) : undefined}
       />
 
-      <ToggleButtonGroup size="small" exclusive value={filter}
-        onChange={(_, v) => v && setFilter(v)} className="!rounded-xl">
+      <ToggleButtonGroup size="small" exclusive value={tab}
+        onChange={(_, v) => v && setTab(v)} className="!rounded-xl">
         <ToggleButton value="all" className="!rounded-l-xl !normal-case !font-bold !text-xs !px-4">All</ToggleButton>
-        <ToggleButton value="unread" className="!rounded-r-xl !normal-case !font-bold !text-xs !px-4">
+        <ToggleButton value="unread" className="!normal-case !font-bold !text-xs !px-4">
           Unread{unread > 0 && <Chip size="small" label={unread} className="!ml-1.5 !h-4 !text-[10px] !bg-blue-100 !text-blue-700 !font-bold" />}
+        </ToggleButton>
+        <ToggleButton value="settings" className="!rounded-r-xl !normal-case !font-bold !text-xs !px-4">
+          <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5" />Settings
         </ToggleButton>
       </ToggleButtonGroup>
 
-      {loading ? (
+      {tab === 'settings' ? (
+        <NotificationPreferences />
+      ) : loading ? (
         <div className="flex justify-center py-24"><CircularProgress /></div>
       ) : items.length === 0 ? (
         <EmptyState
           icon={<BellOff className="w-6 h-6" />}
-          title={filter === 'unread' ? 'Nothing unread' : 'Nothing yet'}
-          message={filter === 'unread'
+          title={tab === 'unread' ? 'Nothing unread' : 'Nothing yet'}
+          message={tab === 'unread'
             ? 'You are up to date.'
-            : 'Gate arrivals, complaints and anything needing your decision will appear here.'}
+            : 'Visitors at the gate, complaints and anything needing your decision will appear here.'}
         />
       ) : (
         <div className="space-y-4">

@@ -10,7 +10,7 @@ import {
   ChevronRight,
   X
 } from 'lucide-react';
-import { getSidebarLinks, filterLinksByFinanceModules, filterLinksByOpsModules, filterLinksByAccess, SidebarLink } from './sidebarContent';
+import { getSidebarLinks, filterLinksByFinanceModules, filterLinksByOpsModules, filterLinksByAccess, filterLinksByResidentFeature, SidebarLink } from './sidebarContent';
 import { ResiSmartLogo } from './ResiSmartLogo';
 
 interface SidebarProps {
@@ -31,6 +31,12 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
   // on a half-loaded answer flashes a truncated menu.
   const [accessPermissions, setAccessPermissions] = useState<Record<string, string> | null>(null);
   const [opsModules, setOpsModules] = useState<string[] | null>(null);
+  // Gate 4. Held here so a resident-facing link can be hidden when the society
+  // handles that thing at the office instead.
+  const [residentFeatures, setResidentFeatures] = useState<Record<string, boolean>>({});
+  // True when the one entitlement call failed. The menu is then empty ON
+  // PURPOSE, and the shell says so rather than letting it look broken.
+  const [entitlementsFailed, setEntitlementsFailed] = useState(false);
 
   const role = activeProfile?.role;
 
@@ -45,63 +51,64 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
     return () => { cancelled = true; };
   }, [role]);
 
-  // Which optional finance screens this society uses. On failure we show
-  // everything: a menu that is too long is a nuisance, a menu missing the screen
-  // you need is a fault.
-  const loadFinanceModules = useCallback(() => {
-    if (!role?.startsWith('SOCIETY_')) { setFinanceModules(null); return undefined; }
-    let cancelled = false;
-    api.get('/finance/society/modules')
-      .then(res => { if (!cancelled) setFinanceModules(Array.isArray(res.data?.modules) ? res.data.modules : null); })
-      .catch(() => { if (!cancelled) setFinanceModules(null); });
-    return () => { cancelled = true; };
-  }, [role]);
-
-  useEffect(() => loadFinanceModules(), [loadFinanceModules]);
-
-  // What THIS person may do — distinct from what the society has switched on.
-  // On failure we filter nothing: the routes refuse anyway, so the worst case
-  // is a link that 403s, which is far better than hiding a screen someone needs
-  // because one request happened to fail.
-  useEffect(() => {
-    if (!role?.startsWith('SOCIETY_')) { setAccessPermissions(null); return; }
-    let cancelled = false;
-    api.get('/access-roles/me')
-      .then(res => { if (!cancelled) setAccessPermissions(res.data?.data?.permissions || null); })
-      .catch(() => { if (!cancelled) setAccessPermissions(null); });
-    return () => { cancelled = true; };
-  }, [role]);
-
-  // Which optional operations screens this society uses. Same fail-open rule as
-  // finance: a menu that is too long is a nuisance, one missing the screen you
-  // need is a fault.
-  const loadOpsModules = useCallback(() => {
-    // Residents included, deliberately: they have Complaints in their menu, and
-    // it has to disappear when the society switches the module off. This is the
-    // cut-down endpoint, so nobody reads gate settings just to draw a menu.
+  /**
+   * All four gates, in one call, and it FAILS CLOSED.
+   *
+   * This used to be three separate requests — `/finance/society/modules`,
+   * `/gate/modules` and `/access-roles/me` — and every one of them fell back to
+   * `null` on error, where `null` meant "apply no filtering at all". So a
+   * single slow or failed response showed a resident the entire society-admin
+   * menu. The reasoning at the time was that a missing screen is worse than an
+   * extra one, and for the *finance* toggles that was true; it stopped being
+   * true the moment the same mechanism decided whether somebody sees their
+   * neighbours' data.
+   *
+   * `/me/entitlements` never throws server-side: it returns everything switched
+   * off when it cannot resolve. So an error here means an empty menu and a
+   * retry, not an open one. `entitlementsFailed` is what the shell uses to say
+   * so out loud, rather than leaving somebody staring at a menu with one item
+   * wondering what happened.
+   */
+  const loadEntitlements = useCallback(() => {
     if (!role?.startsWith('SOCIETY_') && !role?.startsWith('RESIDENT_') && role !== 'FAMILY_MEMBER') {
-      setOpsModules(null); return;
+      setFinanceModules(null); setOpsModules(null); setAccessPermissions(null);
+      setEntitlementsFailed(false);
+      return;
     }
-    api.get('/gate/modules')
-      .then(res => setOpsModules(res.data?.data?.modules || null))
-      .catch(() => setOpsModules(null));
+    api.get('/me/entitlements')
+      .then(res => {
+        const d = res.data?.data;
+        setFinanceModules(Array.isArray(d?.financeModules) ? d.financeModules : []);
+        setOpsModules(Array.isArray(d?.opsModules) ? d.opsModules : []);
+        setAccessPermissions(d?.permissions || {});
+        setResidentFeatures(d?.residentFeatures || {});
+        setEntitlementsFailed(false);
+      })
+      .catch(() => {
+        // Closed, not open. Empty arrays filter everything out; `null` would
+        // have filtered nothing, which is the bug this replaces.
+        setFinanceModules([]); setOpsModules([]); setAccessPermissions({});
+        setResidentFeatures({});
+        setEntitlementsFailed(true);
+      });
   }, [role]);
 
-  useEffect(() => { loadOpsModules(); }, [loadOpsModules]);
+  useEffect(() => { loadEntitlements(); }, [loadEntitlements]);
 
   // The menu has to change the moment the admin saves, not on their next hard
   // reload — a toggle that appears to do nothing reads as broken. Same window-event
   // pattern the API layer already uses for 'auth-logout'.
   useEffect(() => {
-    const refetchFinance = () => { loadFinanceModules(); };
-    const refetchOps = () => { loadOpsModules(); };
-    window.addEventListener('finance-modules-changed', refetchFinance);
-    window.addEventListener('ops-modules-changed', refetchOps);
+    const refetch = () => { loadEntitlements(); };
+    window.addEventListener('finance-modules-changed', refetch);
+    window.addEventListener('ops-modules-changed', refetch);
+    window.addEventListener('entitlements-changed', refetch);
     return () => {
-      window.removeEventListener('finance-modules-changed', refetchFinance);
-      window.removeEventListener('ops-modules-changed', refetchOps);
+      window.removeEventListener('finance-modules-changed', refetch);
+      window.removeEventListener('ops-modules-changed', refetch);
+      window.removeEventListener('entitlements-changed', refetch);
     };
-  }, [loadFinanceModules, loadOpsModules]);
+  }, [loadEntitlements]);
 
   const toggleMenu = (label: string, depth: number) => {
     setExpandedMenus(prev => {
@@ -153,9 +160,17 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
     ? filterLinksByOpsModules(moduleFiltered, opsModules)
     : moduleFiltered;
 
-  const links: SidebarLink[] = accessPermissions
+  const accessFiltered: SidebarLink[] = accessPermissions
     ? filterLinksByAccess(opsFiltered, accessPermissions)
     : opsFiltered;
+
+  // Gate 4, and only for residents — the office reaches these screens through
+  // permissions, and a switch about what RESIDENTS may do says nothing about
+  // what the desk may do.
+  const isResident = role?.startsWith('RESIDENT_') || role === 'FAMILY_MEMBER';
+  const links: SidebarLink[] = isResident
+    ? filterLinksByResidentFeature(accessFiltered, residentFeatures)
+    : accessFiltered;
 
   /**
    * The groups that lead to the page you are actually on.
@@ -254,7 +269,16 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
       const itemStyle = { paddingLeft: `${paddingLeftValue}px`, paddingRight: '16px' };
 
       return (
-        <div key={`${depth}-${idx}`} className="flex flex-col mb-1 relative">
+        <div
+          key={`${depth}-${idx}`}
+          className={cn(
+            "flex flex-col mb-1 relative",
+            // Only at the top level. Nested items sit inside a group that
+            // already has a left rail drawn through it, and a second horizontal
+            // rule inside that reads as a broken box rather than a divider.
+            link.separatorBefore && depth === 0 && "mt-3 pt-3 border-t border-slate-200"
+          )}
+        >
           {hasChildren ? (
             <button
               onClick={() => toggleMenu(link.label, depth)}
@@ -349,6 +373,26 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
         <ResiSmartLogo href="/dashboard" variant="full" />
       </div>
       <div className="flex-1 px-4 py-6 overflow-y-auto custom-scrollbar">
+        {/*
+          The menu now fails CLOSED, so a failed entitlement call leaves it
+          nearly empty. Say so. Without this the safe behaviour is
+          indistinguishable from "my society took my access away", which is a
+          worse support call than the one it prevents.
+        */}
+        {entitlementsFailed && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
+            <p className="text-[13px] font-semibold text-amber-900">Menu didn&apos;t load</p>
+            <p className="mt-0.5 text-[12px] leading-snug text-amber-800">
+              We couldn&apos;t check what you have access to, so we&apos;re showing less rather than more.
+            </p>
+            <button
+              onClick={() => loadEntitlements()}
+              className="mt-2 text-[12px] font-semibold text-amber-900 underline underline-offset-2"
+            >
+              Try again
+            </button>
+          </div>
+        )}
         <div className="space-y-1">
           {renderSidebarLinks(links)}
         </div>

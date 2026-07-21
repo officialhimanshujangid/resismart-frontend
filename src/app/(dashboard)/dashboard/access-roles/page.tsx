@@ -10,6 +10,7 @@ import {
 import { Plus, Shield, Trash2, Pencil, Users, Lock, Building2, Info } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 import { DataTable, ColumnDef } from '@/components/common/DataTable';
+import PageSkeleton from '@/components/common/PageSkeleton';
 
 /**
  * Who can do what, inside this society.
@@ -44,10 +45,16 @@ interface MemberRow {
   accessRoleId?: { _id: string; name: string; isActive: boolean } | null;
 }
 
+/**
+ * Said as a sentence about the person, not as a permission level.
+ *
+ * "FULL / READ / NONE" is how the database stores it; a secretary deciding what
+ * the accountant should be able to touch is answering "can they change it?".
+ */
 const LEVELS: { v: Level; label: string }[] = [
-  { v: 'NONE', label: 'Hidden' },
-  { v: 'READ', label: 'View' },
-  { v: 'FULL', label: 'Change' },
+  { v: 'NONE', label: 'No access' },
+  { v: 'READ', label: 'Can only see' },
+  { v: 'FULL', label: 'Can change' },
 ];
 
 const emptyRole = (): Partial<Role> => ({
@@ -188,8 +195,10 @@ export default function AccessRolesPage() {
           <div className="flex flex-wrap gap-1 max-w-[24rem]">
             {granted.map(p => (
               <Chip key={p.module} size="small"
-                label={`${catalog.find(c => c.key === p.module)?.label || p.module} · ${p.level === 'FULL' ? 'change' : 'view'}`}
-                className={`!text-[10px] !font-semibold !h-5 ${p.level === 'FULL' ? '!bg-indigo-50 !text-indigo-700' : '!bg-slate-100 !text-slate-600'}`} />
+                label={`${catalog.find(c => c.key === p.module)?.label || p.module} · ${p.level === 'FULL' ? 'can change' : 'can only see'}`}
+                sx={p.level === 'FULL'
+                  ? { bgcolor: 'rgba(10, 91, 215, 0.08)', color: 'primary.dark' }
+                  : { bgcolor: '#f1f5f9', color: '#475569' }} />
             ))}
           </div>
         );
@@ -223,7 +232,7 @@ export default function AccessRolesPage() {
     },
   ];
 
-  if (loading) return <div className="flex justify-center py-24"><CircularProgress size={28} /></div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="max-w-5xl mx-auto space-y-5 pb-24">

@@ -1,21 +1,25 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
 import {
   Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions, IconButton,
-  CircularProgress, TableContainer, Table, TableHead, TableBody, TableRow, TableCell,
-  TablePagination, Paper, Zoom, Collapse, FormControl, Select, MenuItem,
+  CircularProgress, Paper, Zoom, Collapse, FormControl, Select, MenuItem,
   Grid, Switch, FormControlLabel,
 } from '@mui/material';
 import {
-  Plus, Pencil, Trash2, X, SlidersHorizontal, RotateCcw, Search, Star, IndianRupee, Info,
+  Plus, Pencil, Trash2, X, SlidersHorizontal, RotateCcw, Search, Star, IndianRupee,
   Package, CheckCircle2,
 } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
-import ModuleScope from '@/components/common/ModuleScope';
 import StatCard from '@/components/common/StatCard';
+import SectionHeading from '@/components/common/SectionHeading';
+import ErrorState from '@/components/common/ErrorState';
+import { DataTable, ColumnDef } from '@/components/common/DataTable';
+import {
+  CapabilityRow, capabilitiesFor, groupsFor, describeValue, stateFromValue,
+} from './capability-catalog';
 
 interface Plan {
   _id: string;
@@ -58,26 +62,17 @@ const CURRENCIES = [
   { code: 'GBP', label: '£ British Pound (GBP)' },
 ];
 
-const SOCIETY_CAPABILITIES: { key: string; label: string }[] = [
-  { key: 'max_flat_count', label: 'Max Flats' },
-  { key: 'max_staff_count', label: 'Max Staff' },
-  { key: 'max_member_count', label: 'Max Members' },
-  { key: 'max_visitor_count', label: 'Max Visitors' },
-  { key: 'max_tickets_count', label: 'Max Tickets' },
-  { key: 'max_service_count', label: 'Max Services' },
-];
-
-const SHOP_CAPABILITIES: { key: string; label: string }[] = [
-  { key: 'max_staff_count', label: 'Max Staff' },
-  { key: 'max_inventory_items', label: 'Max Items' },
-  { key: 'max_orders_per_day', label: 'Max Orders/Day' },
-  { key: 'max_customers', label: 'Max Customers' },
-];
-
-const emptyCaps = (scope: string) => {
-  const fields = scope === 'shop' ? SHOP_CAPABILITIES : SOCIETY_CAPABILITIES;
-  return fields.reduce((a, f) => ({ ...a, [f.key]: 50 }), {} as Record<string, number>);
-};
+/**
+ * A NEW plan starts with everything switched on at a sensible cap.
+ *
+ * An EDITED plan starts from exactly what is stored and nothing else — see
+ * `openEdit`. Seeding an existing plan with these defaults would write a cap
+ * onto a capability that was absent, and absent means unlimited: the first
+ * save of a plan somebody opened only to fix a typo would quietly cut every
+ * society on it down to 100 flats.
+ */
+const newPlanCaps = (scope: string): Record<string, number> =>
+  capabilitiesFor(scope).reduce((a, c) => ({ ...a, [c.key]: c.suggested }), {} as Record<string, number>);
 
 export default function PlansPage() {
   const { showToast, confirm } = useToastConfirm();
@@ -93,6 +88,10 @@ export default function PlansPage() {
 
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
+  // A failed load used to fall through to the table's own empty state, so
+  // "we could not reach the server" and "you have not made any plans yet"
+  // looked identical — and the second one invites somebody to make a duplicate.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -106,11 +105,14 @@ export default function PlansPage() {
   const [editTarget, setEditTarget] = useState<Plan | null>(null);
   const [form, setForm] = useState({
     name: '', description: '', basePrice: 999, currency: 'INR', isFeatured: false, isActive: true,
-    capabilities: emptyCaps(scope), billingCycles: DEFAULT_CYCLES.map((c) => ({ ...c })), module: scope
+    capabilities: newPlanCaps(scope), billingCycles: DEFAULT_CYCLES.map((c) => ({ ...c })), module: scope
   });
 
   const updateCycle = (idx: number, patch: Partial<BillingCycle>) =>
     setForm((f) => ({ ...f, billingCycles: f.billingCycles.map((c, i) => (i === idx ? { ...c, ...patch } : c)) }));
+
+  const setCapability = (key: string, value: number) =>
+    setForm((f) => ({ ...f, capabilities: { ...f.capabilities, [key]: value } }));
 
   const updateUrl = (updates: Record<string, string>) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -126,6 +128,7 @@ export default function PlansPage() {
     const doFetch = async () => {
       try {
         setLoading(true);
+        setLoadFailed(false);
         const params = new URLSearchParams();
         params.append('isPagination', 'true');
         params.append('module', scope);
@@ -137,6 +140,7 @@ export default function PlansPage() {
         setPlans(res.data.plans || []);
         setTotalCount(res.data.pagination?.total ?? 0);
       } catch {
+        setLoadFailed(true);
         showToast('Failed to load plans', 'error');
       } finally {
         setLoading(false);
@@ -159,7 +163,7 @@ export default function PlansPage() {
 
   const openCreate = () => {
     setEditTarget(null);
-    setForm({ name: '', description: '', basePrice: 999, currency: 'INR', isFeatured: false, isActive: true, capabilities: emptyCaps(scope), billingCycles: DEFAULT_CYCLES.map((c) => ({ ...c })), module: scope });
+    setForm({ name: '', description: '', basePrice: 999, currency: 'INR', isFeatured: false, isActive: true, capabilities: newPlanCaps(scope), billingCycles: DEFAULT_CYCLES.map((c) => ({ ...c })), module: scope });
     setModalOpen(true);
   };
 
@@ -172,7 +176,9 @@ export default function PlansPage() {
       currency: p.currency || 'INR',
       isFeatured: p.isFeatured,
       isActive: p.isActive,
-      capabilities: { ...emptyCaps(scope), ...(p.capabilities || {}) },
+      // Exactly what is stored. A capability the plan has never mentioned stays
+      // unmentioned — and therefore unlimited — unless somebody touches its row.
+      capabilities: { ...(p.capabilities || {}) },
       billingCycles: cyclesFromPlan(p),
       module: p.module || scope,
     });
@@ -191,8 +197,11 @@ export default function PlansPage() {
         currency: form.currency,
         isFeatured: form.isFeatured,
         isActive: form.isActive,
+        // Whole numbers only. The backend refuses anything else outright — a
+        // fraction or a stray negative would be read as a ceiling and refuse
+        // every creation in the society.
         capabilities: Object.fromEntries(
-          Object.entries(form.capabilities).map(([k, v]) => [k, Number(v)])
+          Object.entries(form.capabilities).map(([k, v]) => [k, Math.trunc(Number(v))])
         ),
         billingCycles: form.billingCycles.map((c) => ({
           tenure: c.tenure,
@@ -245,17 +254,134 @@ export default function PlansPage() {
   };
 
   const inr = (n: number) => `₹${Number(n).toLocaleString('en-IN')}`;
-  const capLabel = (v: number) => (v === -1 ? '∞' : v);
   const fmtDate = (s?: string) => (s ? new Date(s).toLocaleString('en-IN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '—');
+
+  const catalog = useMemo(() => capabilitiesFor(scope), [scope]);
+  const yearlyOf = (p: Plan) => p.computedPricing?.find((c) => c.tenure === 'yearly')?.totalPrice ?? null;
+
+  /**
+   * The list has the same problem the editor had: a column of bare numbers
+   * cannot say "this plan does not include Complaints at all". So what is sold
+   * is shown as words, and the caps sit in the tooltip where they belong.
+   */
+  const columns: ColumnDef<Plan>[] = [
+    {
+      id: 'name', label: 'Plan', alwaysVisible: true,
+      sortValue: (p) => p.name,
+      exportValue: (p) => p.name,
+      render: (p) => (
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-slate-800">{p.name}</span>
+            {p.isFeatured && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">
+                <Star className="w-3 h-3" /> Featured
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-slate-400 line-clamp-1">{p.description || '—'}</span>
+        </div>
+      ),
+    },
+    {
+      id: 'basePrice', label: 'Base / mo', align: 'right',
+      sortValue: (p) => p.basePrice, exportValue: (p) => p.basePrice,
+      render: (p) => <span className="font-bold text-slate-700">{inr(p.basePrice)}</span>,
+    },
+    {
+      id: 'yearly', label: 'Yearly', align: 'right',
+      sortValue: (p) => yearlyOf(p), exportValue: (p) => yearlyOf(p),
+      render: (p) => <span className="text-slate-600">{yearlyOf(p) === null ? '—' : inr(yearlyOf(p)!)}</span>,
+    },
+    {
+      id: 'subscribers', label: 'Subscribers', align: 'center',
+      sortValue: (p) => p.subscriberCount ?? 0, exportValue: (p) => p.subscriberCount ?? 0,
+      render: (p) => (
+        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 text-xs font-black">
+          {p.subscriberCount ?? 0}
+        </span>
+      ),
+    },
+    {
+      id: 'includes', label: 'What it includes',
+      exportValue: (p) => catalog
+        .map((c) => `${c.label}: ${describeValue(p.capabilities?.[c.key], c)}`)
+        .join(' | '),
+      render: (p) => (
+        <div className="flex flex-wrap gap-1 max-w-[420px]">
+          {catalog.map((c) => {
+            const on = stateFromValue(p.capabilities?.[c.key], c.suggested).included;
+            return (
+              <span key={c.key}
+                title={`${c.label} — ${describeValue(p.capabilities?.[c.key], c)}`}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  on ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-slate-50 text-slate-400 border-slate-200 line-through'
+                }`}>
+                {c.label}
+              </span>
+            );
+          })}
+        </div>
+      ),
+    },
+    {
+      id: 'status', label: 'Status',
+      sortValue: (p) => (p.isActive ? 'Active' : 'Inactive'),
+      exportValue: (p) => (p.isActive ? 'Active' : 'Inactive'),
+      render: (p) => (
+        <div className="flex items-center gap-1.5">
+          <Switch checked={p.isActive} onChange={() => handleToggleActive(p)} color="primary" size="small" />
+          <span className={`text-xs font-bold ${p.isActive ? 'text-emerald-600' : 'text-slate-400'}`}>
+            {p.isActive ? 'Active' : 'Inactive'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: 'createdBy', label: 'Created by', defaultHidden: true,
+      sortValue: (p) => p.createdByName || 'Owner', exportValue: (p) => p.createdByName || 'Owner',
+      render: (p) => <span className="text-sm font-semibold text-slate-600">{p.createdByName || 'Owner'}</span>,
+    },
+    {
+      id: 'createdAt', label: 'Created', defaultHidden: true,
+      sortValue: (p) => p.createdAt, exportValue: (p) => fmtDate(p.createdAt),
+      render: (p) => <span className="text-xs text-slate-500">{fmtDate(p.createdAt)}</span>,
+    },
+    {
+      id: 'updatedBy', label: 'Last changed by',
+      sortValue: (p) => p.updatedByName || '', exportValue: (p) => p.updatedByName || '',
+      render: (p) => <span className="text-sm font-semibold text-slate-600">{p.updatedByName || '—'}</span>,
+    },
+    {
+      id: 'updatedAt', label: 'Last changed',
+      sortValue: (p) => p.updatedAt, exportValue: (p) => fmtDate(p.updatedAt),
+      render: (p) => <span className="text-xs text-slate-500">{fmtDate(p.updatedAt)}</span>,
+    },
+    {
+      id: 'actions', label: 'Actions', align: 'right', alwaysVisible: true,
+      render: (p) => (
+        <div className="flex items-center justify-end gap-1">
+          <IconButton onClick={() => openEdit(p)} size="small" aria-label={`Edit ${p.name}`}
+            className="bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-500 rounded-xl p-2">
+            <Pencil className="w-4 h-4" />
+          </IconButton>
+          <IconButton onClick={() => handleDelete(p)} size="small" aria-label={`Delete ${p.name}`}
+            className="bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-500 rounded-xl p-2">
+            <Trash2 className="w-4 h-4" />
+          </IconButton>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-black text-slate-800 tracking-tight capitalize">{scope} Plans & Pricing</h1>
+            <h1 className="text-2xl font-black text-slate-800 tracking-tight capitalize">{scope} Plans &amp; Pricing</h1>
           </div>
-          <p className="text-sm text-slate-500 mt-0.5">Subscription plans offered to tenants (societies & shops)</p>
+          <p className="text-sm text-slate-500 mt-0.5">Subscription plans offered to tenants (societies &amp; shops)</p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <Button onClick={() => setShowFilters(!showFilters)} variant={showFilters || activeFiltersCount > 0 ? 'contained' : 'outlined'}
@@ -305,79 +431,35 @@ export default function PlansPage() {
         </Paper>
       </Collapse>
 
-      <TableContainer component={Paper} elevation={1} className="rounded-2xl border border-slate-200/60 shadow-sm overflow-x-auto">
-        {loading ? (
-          <div className="flex items-center justify-center py-20 bg-white"><CircularProgress size={32} thickness={4} /></div>
-        ) : plans.length === 0 ? (
-          <div className="text-center py-20 text-slate-400 font-semibold text-sm bg-white">No plans yet. Click &quot;Add Plan&quot; to create one.</div>
-        ) : (
-          <Table sx={{ minWidth: 1320 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ width: 60 }}>S.No.</TableCell>
-                <TableCell>Plan</TableCell>
-                <TableCell>Base / mo</TableCell>
-                <TableCell>Yearly</TableCell>
-                <TableCell>Subscribers</TableCell>
-                <TableCell>{scope === 'shop' ? 'Staff' : 'Flats'}</TableCell>
-                <TableCell>{scope === 'shop' ? 'Items' : 'Staff'}</TableCell>
-                <TableCell>{scope === 'shop' ? 'Orders/Day' : 'Members'}</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Created By</TableCell>
-                <TableCell>Created At</TableCell>
-                <TableCell>Updated By</TableCell>
-                <TableCell>Updated At</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody className="bg-white">
-              {plans.map((p, i) => {
-                const yearly = p.computedPricing?.find((c) => c.tenure === 'yearly');
-                return (
-                  <TableRow key={p._id}>
-                    <TableCell className="font-semibold text-slate-500">{page * pageSize + i + 1}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800">{p.name}</span>
-                        {p.isFeatured && <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full"><Star className="w-3 h-3" /> Featured</span>}
-                      </div>
-                      <span className="text-xs text-slate-400 line-clamp-1">{p.description || '—'}</span>
-                    </TableCell>
-                    <TableCell className="font-bold text-slate-700">{inr(p.basePrice)}</TableCell>
-                    <TableCell className="text-slate-600">{yearly ? inr(yearly.totalPrice) : '—'}</TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 text-xs font-black">{p.subscriberCount ?? 0}</span>
-                    </TableCell>
-                    <TableCell>{capLabel(scope === 'shop' ? (p.capabilities?.max_staff_count ?? 0) : (p.capabilities?.max_flat_count ?? 0))}</TableCell>
-                    <TableCell>{capLabel(scope === 'shop' ? (p.capabilities?.max_inventory_items ?? 0) : (p.capabilities?.max_staff_count ?? 0))}</TableCell>
-                    <TableCell>{capLabel(scope === 'shop' ? (p.capabilities?.max_orders_per_day ?? 0) : (p.capabilities?.max_member_count ?? 0))}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <Switch checked={p.isActive} onChange={() => handleToggleActive(p)} color="primary" size="small" />
-                        <span className={`text-xs font-bold ${p.isActive ? 'text-emerald-600' : 'text-slate-400'}`}>{p.isActive ? 'Active' : 'Inactive'}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm font-semibold text-slate-600">{p.createdByName || 'Owner'}</TableCell>
-                    <TableCell className="font-mono text-xs text-slate-500">{fmtDate(p.createdAt)}</TableCell>
-                    <TableCell className="text-sm font-semibold text-slate-600">{p.updatedByName || '—'}</TableCell>
-                    <TableCell className="font-mono text-xs text-slate-500">{fmtDate(p.updatedAt)}</TableCell>
-                    <TableCell align="right">
-                      <div className="flex items-center justify-end gap-1">
-                        <IconButton onClick={() => openEdit(p)} size="small" className="bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-500 rounded-xl p-2"><Pencil className="w-4 h-4" /></IconButton>
-                        <IconButton onClick={() => handleDelete(p)} size="small" className="bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-500 rounded-xl p-2"><Trash2 className="w-4 h-4" /></IconButton>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        )}
-        <TablePagination component="div" count={totalCount} page={page}
-          onPageChange={(_, np) => updateUrl({ page: String(np + 1) })}
-          rowsPerPage={pageSize} onRowsPerPageChange={(e) => updateUrl({ pageSize: e.target.value, page: '1' })}
-          rowsPerPageOptions={[5, 10, 25, 50]} sx={{ borderTop: '1px solid #f1f5f9', backgroundColor: '#fff' }} />
-      </TableContainer>
+      {loadFailed ? (
+        <ErrorState
+          title="Plans could not load"
+          message="Nothing has been changed. This screen simply could not reach the server."
+          onRetry={refresh}
+        />
+      ) : (
+      <DataTable<Plan>
+        columns={columns}
+        data={plans}
+        loading={loading}
+        keyExtractor={(p) => p._id}
+        emptyTitle="No plans yet"
+        emptyText='Click "Add Plan" to create the first one.'
+        emptyIcon={<Package className="w-6 h-6" />}
+        columnToggle
+        exportFileName={`${scope}-plans`}
+        // Thirteen columns do not fit a phone, and the plan name — the only
+        // thing that identifies the row — is the first to scroll away.
+        mobileCards={{ titleColumn: 'name' }}
+        pagination={{
+          page,
+          pageSize,
+          total: totalCount,
+          onPageChange: (np) => updateUrl({ page: String(np + 1) }),
+          onPageSizeChange: (size) => updateUrl({ pageSize: String(size), page: '1' }),
+        }}
+      />
+      )}
 
       {/* Create / Edit Modal */}
       <Dialog open={modalOpen} onClose={() => setModalOpen(false)} slots={{ transition: Zoom }} maxWidth="md" fullWidth
@@ -387,7 +469,7 @@ export default function PlansPage() {
           <IconButton onClick={() => setModalOpen(false)} size="small"><X className="w-5 h-5" /></IconButton>
         </DialogTitle>
         <form onSubmit={handleSubmit}>
-          <DialogContent className="space-y-4">
+          <DialogContent className="space-y-5">
             <Grid container spacing={2}>
               <Grid size={{ xs: 12 }} className="space-y-1">
                 <span className="text-xs font-black uppercase tracking-wider text-slate-400">Plan Name *</span>
@@ -417,7 +499,9 @@ export default function PlansPage() {
 
             {/* Billing Cycles */}
             <div className="space-y-2">
-              <span className="text-xs font-black uppercase tracking-wider text-[#0a5bd7] border-b-2 border-[#0a5bd7]/30 pb-0.5 inline-block">Billing Cycles</span>
+              <SectionHeading hint="Monthly has no discount. Totals are computed from the base price × duration, less the discount.">
+                Billing cycles
+              </SectionHeading>
               <Grid container spacing={1.5}>
                 {form.billingCycles.map((cyc, idx) => {
                   const full = Number(form.basePrice) * cyc.durationMonths;
@@ -442,29 +526,37 @@ export default function PlansPage() {
                   );
                 })}
               </Grid>
-              <p className="text-[11px] text-slate-400">Monthly has no discount. Totals are computed from the base price × duration, less the discount.</p>
             </div>
 
-            <div className="space-y-2">
-              <span className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Info className="w-3.5 h-3.5" /> Capability Limits (use -1 for unlimited)
-              </span>
-              <Grid container spacing={2}>
-                {(scope === 'shop' ? SHOP_CAPABILITIES : SOCIETY_CAPABILITIES).map((c) => (
-                  <Grid size={{ xs: 6, sm: 4 }} key={c.key} className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">{c.label}</span>
-                    <TextField hiddenLabel fullWidth type="number" size="small" value={form.capabilities[c.key]}
-                      onChange={(e) => setForm((f) => ({ ...f, capabilities: { ...f.capabilities, [c.key]: Number(e.target.value) } }))} />
-                  </Grid>
-                ))}
-              </Grid>
-            </div>
+            {/* What the plan includes — a switch and a limit, never a raw 0 */}
+            {groupsFor(scope).map((group) => (
+              <div key={group.title} className="space-y-2">
+                <SectionHeading hint={group.hint}>{group.title}</SectionHeading>
+                <div className="space-y-2">
+                  {group.items.map((cap) => (
+                    <CapabilityRow
+                      key={cap.key}
+                      cap={cap}
+                      value={form.capabilities[cap.key]}
+                      onChange={(next) => setCapability(cap.key, next)}
+                      disabled={saving}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-50 border border-slate-200/70 rounded-xl p-3">
+              Changing a plan never deletes anything. A society already past a limit keeps every flat,
+              resident and record it has and can still edit them — only <strong>new</strong> ones are refused
+              until they upgrade. Switching a module off hides it and stops new entries; switch it back on
+              and the data is exactly where they left it.
+            </p>
 
             <div className="flex items-center gap-6 pt-1">
               <FormControlLabel control={<Switch checked={form.isFeatured} onChange={(e) => setForm((f) => ({ ...f, isFeatured: e.target.checked }))} />} label={<span className="text-sm font-semibold text-slate-600">Featured</span>} />
               <FormControlLabel control={<Switch checked={form.isActive} onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))} />} label={<span className="text-sm font-semibold text-slate-600">Active</span>} />
             </div>
-            <p className="text-xs text-slate-400">Quarterly / half-yearly / yearly prices and discounts are computed automatically from the base price.</p>
           </DialogContent>
           <DialogActions className="p-5 pt-0 gap-2">
             <Button onClick={() => setModalOpen(false)} variant="outlined" fullWidth className="py-2.5 font-bold">Cancel</Button>

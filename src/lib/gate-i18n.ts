@@ -39,6 +39,12 @@ export type GateLang = typeof GATE_LANGUAGES[number]['code'];
  * rather than a label — "Who is at the gate?" beats "Visitor name".
  */
 export interface GateStrings {
+  /**
+   * The heading over the guard's screen. It reads "Gate Desk" rather than
+   * "Gate" or "Gate Console": the module is called Visitor Management now, and
+   * what is left of the word "gate" here is the physical post the guard is
+   * standing at — which is the right word for it.
+   */
   console: string;
   whoIsHere: string;
   visitorName: string;
@@ -73,7 +79,7 @@ export interface GateStrings {
 }
 
 const en: GateStrings = {
-  console: 'Gate',
+  console: 'Gate Desk',
   whoIsHere: 'Who is at the gate?',
   visitorName: 'Their name',
   phone: 'Phone number',
@@ -88,7 +94,7 @@ const en: GateStrings = {
   askingFlat: 'Asking the flat…',
   letIn: 'Allowed',
   turnAway: 'Refused',
-  leaveAtGate: 'Leave at the gate',
+  leaveAtGate: 'Leave it at the gate',
   waiting: 'Waiting for an answer',
   noAnswer: 'No answer',
   decideYourself: 'Decide without waiting',
@@ -107,7 +113,7 @@ const en: GateStrings = {
 };
 
 const hi: GateStrings = {
-  console: 'गेट',
+  console: 'गेट डेस्क',
   whoIsHere: 'गेट पर कौन है?',
   visitorName: 'इनका नाम',
   phone: 'फ़ोन नंबर',
@@ -141,7 +147,7 @@ const hi: GateStrings = {
 };
 
 const mr: GateStrings = {
-  console: 'गेट',
+  console: 'गेट डेस्क',
   whoIsHere: 'गेटवर कोण आहे?',
   visitorName: 'त्यांचे नाव',
   phone: 'फोन नंबर',
@@ -175,7 +181,7 @@ const mr: GateStrings = {
 };
 
 const gu: GateStrings = {
-  console: 'ગેટ',
+  console: 'ગેટ ડેસ્ક',
   whoIsHere: 'ગેટ પર કોણ છે?',
   visitorName: 'તેમનું નામ',
   phone: 'ફોન નંબર',
@@ -209,7 +215,7 @@ const gu: GateStrings = {
 };
 
 const bn: GateStrings = {
-  console: 'গেট',
+  console: 'গেট ডেস্ক',
   whoIsHere: 'গেটে কে আছেন?',
   visitorName: 'তাঁর নাম',
   phone: 'ফোন নম্বর',
@@ -243,7 +249,7 @@ const bn: GateStrings = {
 };
 
 const ta: GateStrings = {
-  console: 'கேட்',
+  console: 'கேட் டெஸ்க்',
   whoIsHere: 'கேட்டில் யார் இருக்கிறார்கள்?',
   visitorName: 'அவர்களின் பெயர்',
   phone: 'தொலைபேசி எண்',
@@ -277,7 +283,7 @@ const ta: GateStrings = {
 };
 
 const te: GateStrings = {
-  console: 'గేట్',
+  console: 'గేట్ డెస్క్',
   whoIsHere: 'గేటు దగ్గర ఎవరున్నారు?',
   visitorName: 'వారి పేరు',
   phone: 'ఫోన్ నంబర్',
@@ -311,7 +317,7 @@ const te: GateStrings = {
 };
 
 const kn: GateStrings = {
-  console: 'ಗೇಟ್',
+  console: 'ಗೇಟ್ ಡೆಸ್ಕ್',
   whoIsHere: 'ಗೇಟಿನಲ್ಲಿ ಯಾರಿದ್ದಾರೆ?',
   visitorName: 'ಅವರ ಹೆಸರು',
   phone: 'ಫೋನ್ ಸಂಖ್ಯೆ',
@@ -345,7 +351,7 @@ const kn: GateStrings = {
 };
 
 const ml: GateStrings = {
-  console: 'ഗേറ്റ്',
+  console: 'ഗേറ്റ് ഡെസ്ക്',
   whoIsHere: 'ഗേറ്റിൽ ആരാണ്?',
   visitorName: 'അവരുടെ പേര്',
   phone: 'ഫോൺ നമ്പർ',
@@ -379,7 +385,7 @@ const ml: GateStrings = {
 };
 
 const pa: GateStrings = {
-  console: 'ਗੇਟ',
+  console: 'ਗੇਟ ਡੈਸਕ',
   whoIsHere: 'ਗੇਟ ਉੱਤੇ ਕੌਣ ਹੈ?',
   visitorName: 'ਉਹਨਾਂ ਦਾ ਨਾਂ',
   phone: 'ਫ਼ੋਨ ਨੰਬਰ',
@@ -413,7 +419,7 @@ const pa: GateStrings = {
 };
 
 const or: GateStrings = {
-  console: 'ଗେଟ୍',
+  console: 'ଗେଟ୍ ଡେସ୍କ',
   whoIsHere: 'ଗେଟରେ କିଏ ଅଛନ୍ତି?',
   visitorName: 'ସେମାନଙ୍କ ନାମ',
   phone: 'ଫୋନ୍ ନମ୍ବର',

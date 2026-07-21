@@ -9,11 +9,14 @@ import {
 } from '@mui/material';
 import {
   Plus, Users, Search, ShieldAlert, Building2, Trash2, UserMinus, Info, Wrench,
+  FileText, Upload, Download, Camera, CalendarClock, CalendarOff, KeyRound, RotateCcw,
+  ShieldCheck,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 import { DataTable, ColumnDef } from '@/components/common/DataTable';
 import PageHeader from '@/components/common/PageHeader';
+import PageSkeleton from '@/components/common/PageSkeleton';
 
 /**
  * The society's own staff.
@@ -32,7 +35,7 @@ import PageHeader from '@/components/common/PageHeader';
 interface Staff {
   _id: string;
   staffCode: string;
-  person: { name: string; phone: string; email?: string };
+  person: { name: string; phone: string; email?: string; hasPhoto?: boolean };
   designation: string;
   employmentType: 'DIRECT' | 'AGENCY' | 'CONTRACT';
   vendorName?: string;
@@ -41,13 +44,21 @@ interface Staff {
   leftOn?: string;
   accessRoleId?: string;
   userId?: string;
-  verification?: { policeVerifiedOn?: string; expiresOn?: string };
+  verification?: { policeVerifiedOn?: string; expiresOn?: string; verifiedBy?: string; hasDocument?: boolean };
+  emergencyContact?: { name?: string; phone?: string; relation?: string };
+  /** Earlier stretches of employment, kept when somebody is taken back on. */
+  spells?: { joinedOn: string; leftOn: string; endedByName?: string }[];
+  documents?: StaffDoc[];
 }
 interface Assignment {
   _id: string; staffName: string; scope: string;
   blockId?: string; blockName?: string; categories: string[];
   rank: 'PRIMARY' | 'BACKUP'; isActive: boolean;
 }
+/** No S3 key ever reaches the browser — downloads go through a signed URL. */
+interface StaffDoc { _id: string; name: string; uploadedAt: string; uploadedByName: string }
+interface Shift { _id: string; weekday: number; from: string; to: string }
+interface Leave { _id: string; from: string; to: string; kind: string; reason?: string }
 interface Lookups {
   blocks: { _id: string; name: string }[];
   vendors: { _id: string; name: string }[];
@@ -61,6 +72,14 @@ const pretty = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^./, c
 const TYPE_LABEL: Record<string, string> = {
   DIRECT: 'Employed by us', AGENCY: 'Through an agency', CONTRACT: 'On contract',
 };
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+/** Appendix A rule 2 — never show the stored value. */
+const LEAVE_LABEL: Record<string, string> = {
+  LEAVE: 'On leave', SICK: 'Unwell', WEEKLY_OFF: 'Weekly off', OTHER: 'Away',
+};
+const onDate = (s?: string) => (s ? new Date(s).toLocaleDateString('en-IN') : '');
+/** The theme covers Button, Chip, Dialog and the inputs; ToggleButton it does not. */
+const TOGGLE_SX = { borderRadius: '12px', textTransform: 'none', fontSize: 12, fontWeight: 700, px: 1.5 } as const;
 
 export default function StaffPage() {
   const { showToast, confirm } = useToastConfirm();
@@ -80,6 +99,16 @@ export default function StaffPage() {
   const [detailOf, setDetailOf] = useState<Staff | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [assignForm, setAssignForm] = useState<any>({ scope: 'BLOCK', blockId: '', categories: [], rank: 'PRIMARY' });
+
+  // Everything the drawer needs beyond the record itself. All of this existed
+  // on the model and had no screen at all until now.
+  const [docs, setDocs] = useState<StaffDoc[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [leave, setLeave] = useState<Leave[]>([]);
+  const [onDutyNow, setOnDutyNow] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [shiftForm, setShiftForm] = useState({ weekday: 1, from: '09:00', to: '18:00' });
+  const [leaveForm, setLeaveForm] = useState({ from: '', to: '', kind: 'LEAVE', reason: '' });
 
   const load = async () => {
     try {
@@ -105,11 +134,18 @@ export default function StaffPage() {
     setDetailOf(s);
     try {
       const res = await api.get(`/staff/${s._id}`);
-      setAssignments(res.data?.data?.assignments || []);
+      const d = res.data?.data || {};
+      setAssignments(d.assignments || []);
+      setShifts(d.shifts || []);
+      setLeave(d.leave || []);
+      setDocs(d.staff?.documents || []);
+      setOnDutyNow(typeof d.onDutyNow === 'boolean' ? d.onDutyNow : null);
       // The list row does not carry userId; the full record does. Refresh from
       // it so the login section knows whether they can already sign in.
-      if (res.data?.data?.staff) setDetailOf(res.data.data.staff);
-    } catch { setAssignments([]); }
+      if (d.staff) setDetailOf(d.staff);
+    } catch {
+      setAssignments([]); setShifts([]); setLeave([]); setDocs([]); setOnDutyNow(null);
+    }
   };
 
   /**
@@ -124,12 +160,41 @@ export default function StaffPage() {
   const add = async () => {
     setSaving(true);
     try {
+      /**
+       * Drop the empty boxes before sending.
+       *
+       * The server validates dates with `new Date(v)`, and `new Date('')` is
+       * not a date — so an untouched "Police check expires" field made the
+       * whole save fail with a message about a field the person never filled
+       * in. Blank means "not answered", which is different from "answered with
+       * nothing" and must not reach the wire at all.
+       */
+      const clean = (o: any) => {
+        const out: any = {};
+        for (const [k, v] of Object.entries(o || {})) if (v !== '' && v !== undefined && v !== null) out[k] = v;
+        return Object.keys(out).length ? out : undefined;
+      };
+      const payload = {
+        ...form,
+        verification: clean(form.verification),
+        emergencyContact: clean(form.emergencyContact),
+      };
+      if (payload.verification === undefined) delete payload.verification;
+      if (payload.emergencyContact === undefined) delete payload.emergencyContact;
+      // "No login" is an empty select, which is not an id. On an edit that
+      // means "take the role away" and is sent as null; on a create it simply
+      // is not sent.
+      if (payload.accessRoleId === '') {
+        if (form._id) payload.accessRoleId = null; else delete payload.accessRoleId;
+      }
+      if (payload.vendorId === '') delete payload.vendorId;
+
       if (form._id) {
-        const { _id, employmentType, vendorId, ...editable } = form;
+        const { _id, employmentType, vendorId, ...editable } = payload;
         const res = await api.put(`/staff/${_id}`, editable);
         showToast(res.data?.message || 'Saved', 'success');
       } else {
-        const res = await api.post('/staff', form);
+        const res = await api.post('/staff', payload);
         showToast(res.data?.message || 'Added', 'success');
       }
       setAddOpen(false);
@@ -148,7 +213,16 @@ export default function StaffPage() {
       designation: s.designation,
       employmentType: s.employmentType,
       accessRoleId: s.accessRoleId || '',
-      verification: { expiresOn: s.verification?.expiresOn ? s.verification.expiresOn.slice(0, 10) : '' },
+      verification: {
+        expiresOn: s.verification?.expiresOn ? s.verification.expiresOn.slice(0, 10) : '',
+        policeVerifiedOn: s.verification?.policeVerifiedOn ? s.verification.policeVerifiedOn.slice(0, 10) : '',
+        verifiedBy: s.verification?.verifiedBy || '',
+      },
+      emergencyContact: {
+        name: s.emergencyContact?.name || '',
+        phone: s.emergencyContact?.phone || '',
+        relation: s.emergencyContact?.relation || '',
+      },
     });
     setAddOpen(true);
   };
@@ -186,6 +260,193 @@ export default function StaffPage() {
       await load();
     } catch (e: any) {
       showToast(e.response?.data?.message || 'Could not create that login', 'error');
+    }
+  };
+
+  /**
+   * Bring somebody back onto the roll.
+   *
+   * A separate action from "Add someone" on purpose. Adding them again would
+   * mint a second `SF/xxxx`, split their complaint history across two codes and
+   * count them twice against the agency's bill — which is the one number this
+   * whole module exists to get right.
+   */
+  const rehire = async (s: Staff) => {
+    const yes = await confirm({
+      title: `${s.person.name} is back?`,
+      message: 'Their old record is reopened, so their staff number, their papers and their police check come back with them. Nothing is created twice.',
+      confirmText: 'They are back',
+    });
+    if (!yes) return;
+    try {
+      const res = await api.post(`/staff/${s._id}/reinstate`, {});
+      showToast(res.data?.message || 'Back on the roll', 'success');
+      setDetailOf(null);
+      await load();
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not bring them back', 'error');
+    }
+  };
+
+  const revokeLogin = async (s: Staff) => {
+    const yes = await confirm({
+      title: `Stop ${s.person.name} signing in?`,
+      message: 'They stay on the roll and keep their work — they simply cannot sign in, and their phone stops receiving this society\'s alerts. You can give them a login again later.',
+      confirmText: 'Take the login away', severity: 'warning',
+    });
+    if (!yes) return;
+    try {
+      const res = await api.post(`/staff/${s._id}/login/revoke`, {});
+      showToast(res.data?.message || 'Login taken away', 'success');
+      await openDetail(s);
+      await load();
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not take that login away', 'error');
+    }
+  };
+
+  const resetPassword = async (s: Staff) => {
+    const yes = await confirm({
+      title: `New password for ${s.person.name}?`,
+      message: 'Their old password stops working straight away. The new one is shown once — write it down before closing the message.',
+      confirmText: 'Reset it',
+    });
+    if (!yes) return;
+    try {
+      const res = await api.post(`/staff/${s._id}/login/reset`, {});
+      // Shown once, in the toast, for the same reason the first password is:
+      // there is no SMS gateway to send it through.
+      showToast(res.data?.message || 'Password reset', 'success');
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not reset that password', 'error');
+    }
+  };
+
+  /**
+   * Papers.
+   *
+   * Two steps, exactly as flat documents do it: the bytes go to the shared
+   * private uploader, and only the reference it hands back is attached to the
+   * person. A failed attach therefore never leaves a record pointing at a file
+   * that was never stored.
+   */
+  const uploadDoc = async (file: File) => {
+    if (!detailOf) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const up = await api.post('/upload/staff-document', fd);
+      await api.post(`/staff/${detailOf._id}/documents`, { name: file.name, key: up.data.key, url: up.data.url });
+      showToast('Document filed', 'success');
+      await openDetail(detailOf);
+    } catch (e: any) {
+      showToast(e.response?.data?.message || e.response?.data?.error || 'Could not file that document', 'error');
+    } finally { setBusy(false); }
+  };
+
+  const openSigned = async (url: string, whatFailed: string) => {
+    try {
+      const res = await api.get(url);
+      if (res.data?.data?.url) window.open(res.data.data.url, '_blank');
+      else showToast(whatFailed, 'error');
+    } catch (e: any) {
+      showToast(e.response?.data?.message || whatFailed, 'error');
+    }
+  };
+
+  const removeDoc = async (d: StaffDoc) => {
+    if (!detailOf) return;
+    const yes = await confirm({
+      title: `Remove ${d.name}?`,
+      message: 'It stops being listed against this person. Keep a copy elsewhere if it is the only one.',
+      confirmText: 'Remove', severity: 'warning',
+    });
+    if (!yes) return;
+    try {
+      await api.delete(`/staff/${detailOf._id}/documents/${d._id}`);
+      await openDetail(detailOf);
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not remove that document', 'error');
+    }
+  };
+
+  /**
+   * The scan behind the police verification.
+   *
+   * `verification.documentKey` was writable and readable by nothing, so the
+   * date on the record had no paper behind it — a tick with nothing to show,
+   * which reads as an answer and stops the committee asking.
+   */
+  const uploadVerification = async (file: File) => {
+    if (!detailOf) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const up = await api.post('/upload/staff-document', fd);
+      await api.put(`/staff/${detailOf._id}`, { verification: { documentKey: up.data.key } });
+      showToast('Police verification filed', 'success');
+      await openDetail(detailOf);
+    } catch (e: any) {
+      showToast(e.response?.data?.message || e.response?.data?.error || 'Could not file that', 'error');
+    } finally { setBusy(false); }
+  };
+
+  const uploadPhoto = async (file: File) => {
+    if (!detailOf) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const up = await api.post('/upload/staff-photo', fd);
+      await api.put(`/staff/${detailOf._id}`, { photoKey: up.data.key });
+      showToast('Photograph saved', 'success');
+      await openDetail(detailOf);
+    } catch (e: any) {
+      showToast(e.response?.data?.message || e.response?.data?.error || 'Could not save that photograph', 'error');
+    } finally { setBusy(false); }
+  };
+
+  // --------------------------------------------------------- rota and leave
+  const addShift = async () => {
+    if (!detailOf) return;
+    try {
+      await api.post(`/staff/${detailOf._id}/shifts`, shiftForm);
+      await openDetail(detailOf);
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not save those hours', 'error');
+    }
+  };
+
+  const removeShiftRow = async (id: string) => {
+    if (!detailOf) return;
+    try {
+      await api.delete(`/staff/shifts/${id}`);
+      await openDetail(detailOf);
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not remove those hours', 'error');
+    }
+  };
+
+  const addLeave = async () => {
+    if (!detailOf) return;
+    try {
+      await api.post(`/staff/${detailOf._id}/leave`, leaveForm);
+      setLeaveForm({ from: '', to: '', kind: 'LEAVE', reason: '' });
+      await openDetail(detailOf);
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not record that', 'error');
+    }
+  };
+
+  const cancelLeave = async (id: string) => {
+    if (!detailOf) return;
+    try {
+      await api.delete(`/staff/leave/${id}`);
+      await openDetail(detailOf);
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not cancel that', 'error');
     }
   };
 
@@ -233,7 +494,10 @@ export default function StaffPage() {
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <p className={`font-bold truncate ${s.isActive ? 'text-slate-800' : 'text-slate-400'}`}>{s.person.name}</p>
-              {!s.isActive && <Chip size="small" label="Left" className="!bg-slate-200 !text-slate-600 !font-bold !text-[10px] !h-4" />}
+              {/* Colour through `sx`, not Tailwind: Emotion injects MUI's own
+                  styles after Tailwind's layer, so a class here loses and comes
+                  back as `!important`. Same rule StatusChip documents. */}
+              {!s.isActive && <Chip size="small" label="Left" sx={{ bgcolor: '#e2e8f0', color: '#475569', height: 18, fontSize: 10 }} />}
             </div>
             <p className="text-[11px] text-slate-400 font-mono">{s.staffCode}</p>
           </div>
@@ -268,7 +532,7 @@ export default function StaffPage() {
       sortValue: s => (s.userId ? 'Yes' : 'No'),
       exportValue: s => (s.userId ? 'Yes' : 'No'),
       render: s => s.userId
-        ? <Chip size="small" label="Has one" className="!bg-emerald-50 !text-emerald-700 !font-bold !text-[10px]" />
+        ? <Chip size="small" label="Has one" sx={{ bgcolor: '#ecfdf5', color: '#047857', fontSize: 10 }} />
         : <span className="text-[11px] text-slate-300">—</span>,
     },
     {
@@ -297,7 +561,7 @@ export default function StaffPage() {
     },
   ];
 
-  if (loading) return <div className="flex justify-center py-24"><CircularProgress /></div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="space-y-4 pb-24">
@@ -309,10 +573,9 @@ export default function StaffPage() {
         actions={
           <>
             <Button variant="outlined" startIcon={<Wrench className="w-4 h-4" />}
-              onClick={() => router.push('/dashboard/staff/coverage')}
-              className="!rounded-xl !normal-case !font-bold">Who covers what</Button>
+              onClick={() => router.push('/dashboard/staff/coverage')}>Who covers what</Button>
             <Button variant="contained" startIcon={<Plus className="w-4 h-4" />}
-              onClick={() => setAddOpen(true)} className="!rounded-xl !normal-case !font-bold">
+              onClick={() => setAddOpen(true)}>
               Add someone
             </Button>
           </>
@@ -356,7 +619,7 @@ export default function StaffPage() {
                 {alerts.expiring.map((s: any) => (
                   <Chip key={s._id} size="small"
                     label={`${s.person.name} · ${new Date(s.verification.expiresOn).toLocaleDateString('en-IN')}`}
-                    className="!bg-white !border !border-amber-300 !text-amber-900 !font-semibold !text-[11px]" />
+                    sx={{ bgcolor: '#fff', border: '1px solid #fcd34d', color: '#78350f', fontSize: 11 }} />
                 ))}
               </div>
               <p className="text-[11px] text-amber-800 mt-2">
@@ -382,11 +645,14 @@ export default function StaffPage() {
           <>
             <TextField size="small" placeholder="Name, phone, code…" value={q}
               onChange={e => setQ(e.target.value)} className="min-w-[240px]"
-              slotProps={{ input: { className: '!rounded-xl', startAdornment: <Search className="w-4 h-4 text-slate-400 mr-2" /> } }} />
+              slotProps={{ input: { startAdornment: <Search className="w-4 h-4 text-slate-400 mr-2" /> } }} />
             <ToggleButtonGroup exclusive size="small" value={showLeft ? 'all' : 'active'}
               onChange={(_, v) => v && setShowLeft(v === 'all')}>
-              <ToggleButton value="active" className="!rounded-l-xl !normal-case !text-xs !font-bold !px-3">Current</ToggleButton>
-              <ToggleButton value="all" className="!rounded-r-xl !normal-case !text-xs !font-bold !px-3">Everyone</ToggleButton>
+              {/* MUI leaves ToggleButton uppercase and square-cornered, and the
+                  theme has no override for it — so the shape is stated in the
+                  component's own system rather than shouted at from Tailwind. */}
+              <ToggleButton value="active" sx={TOGGLE_SX}>Current</ToggleButton>
+              <ToggleButton value="all" sx={TOGGLE_SX}>Everyone</ToggleButton>
             </ToggleButtonGroup>
           </>
         }
@@ -394,8 +660,8 @@ export default function StaffPage() {
 
       {/* ------------------------------------------------------------ add */}
       <Dialog open={addOpen} onClose={() => setAddOpen(false)} fullWidth maxWidth="xs"
-        slotProps={{ paper: { className: '!rounded-2xl' } }}>
-        <DialogTitle className="!font-black !text-slate-900">
+      >
+        <DialogTitle className="font-black text-slate-900">
           {form._id ? `Edit ${form.name}` : 'Add someone'}
         </DialogTitle>
         <DialogContent dividers className="flex flex-col gap-4 pt-2">
@@ -439,16 +705,40 @@ export default function StaffPage() {
               {look?.roles.map(r => <MenuItem key={r._id} value={r._id}>{r.name}</MenuItem>)}
             </Select>
           </FormControl>
-          <TextField fullWidth size="small" type="date" label="Police verification expires"
-            value={form.verification?.expiresOn || ''}
-            onChange={e => setForm({ ...form, verification: { ...form.verification, expiresOn: e.target.value } })}
-            slotProps={{ inputLabel: { shrink: true } }}
-            helperText="Optional, but a verification with no end date cannot be chased." />
+          <div className="flex gap-3">
+            <TextField fullWidth size="small" type="date" label="Police check done on"
+              value={form.verification?.policeVerifiedOn || ''}
+              onChange={e => setForm({ ...form, verification: { ...form.verification, policeVerifiedOn: e.target.value } })}
+              slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField fullWidth size="small" type="date" label="Police check expires"
+              value={form.verification?.expiresOn || ''}
+              onChange={e => setForm({ ...form, verification: { ...form.verification, expiresOn: e.target.value } })}
+              slotProps={{ inputLabel: { shrink: true } }} />
+          </div>
+          <TextField fullWidth size="small" label="Police check done by"
+            value={form.verification?.verifiedBy || ''}
+            onChange={e => setForm({ ...form, verification: { ...form.verification, verifiedBy: e.target.value } })}
+            helperText="The station or agency. An end date with nobody's name behind it cannot be chased." />
+
+          {/* Emergency contact. Declared on the record from the start and
+              writable by nothing — so when somebody collapsed on shift there
+              was a field for who to call and never anybody in it. */}
+          <div className="flex gap-3">
+            <TextField fullWidth size="small" label="In an emergency, call"
+              value={form.emergencyContact?.name || ''}
+              onChange={e => setForm({ ...form, emergencyContact: { ...form.emergencyContact, name: e.target.value } })} />
+            <TextField fullWidth size="small" label="Their number"
+              value={form.emergencyContact?.phone || ''}
+              onChange={e => setForm({ ...form, emergencyContact: { ...form.emergencyContact, phone: e.target.value } })} />
+          </div>
+          <TextField fullWidth size="small" label="Who they are to them"
+            value={form.emergencyContact?.relation || ''}
+            onChange={e => setForm({ ...form, emergencyContact: { ...form.emergencyContact, relation: e.target.value } })}
+            helperText="Wife, brother, son — whatever a person would actually say." />
         </DialogContent>
-        <DialogActions className="!px-6 !py-3">
-          <Button onClick={() => setAddOpen(false)} className="!normal-case !font-bold">Cancel</Button>
-          <Button variant="contained" onClick={add} disabled={saving || !form.name || !form.phone}
-            className="!rounded-xl !normal-case !font-bold">
+        <DialogActions>
+          <Button onClick={() => setAddOpen(false)} color="inherit">Cancel</Button>
+          <Button variant="contained" onClick={add} disabled={saving || !form.name || !form.phone}>
             {saving ? 'Saving…' : form._id ? 'Save' : 'Add'}
           </Button>
         </DialogActions>
@@ -456,8 +746,8 @@ export default function StaffPage() {
 
       {/* ------------------------------------------------------- assignments */}
       <Dialog open={!!detailOf} onClose={() => setDetailOf(null)} fullWidth maxWidth="sm"
-        slotProps={{ paper: { className: '!rounded-2xl' } }}>
-        <DialogTitle className="!font-black !text-slate-900 flex items-start justify-between gap-3">
+      >
+        <DialogTitle className="font-black text-slate-900 flex items-start justify-between gap-3">
           <span>
             {detailOf?.person.name}
             <span className="block text-xs font-normal text-slate-500 mt-0.5">
@@ -466,14 +756,50 @@ export default function StaffPage() {
           </span>
           {detailOf?.isActive && (
             <Button size="small" variant="outlined" onClick={() => openEdit(detailOf)}
-              className="!rounded-xl !normal-case !font-bold !text-xs shrink-0">Edit details</Button>
+              sx={{ flexShrink: 0 }}>Edit details</Button>
           )}
         </DialogTitle>
         <DialogContent dividers className="flex flex-col gap-4 pt-2">
+          {/* -------------------------------------------------- they have left */}
+          {detailOf && !detailOf.isActive && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-700">
+                  Left on {onDate(detailOf.leftOn)}
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  If they come back, reopen this record — adding them again would give them a
+                  second staff number and count them twice against the agency&apos;s bill.
+                </p>
+              </div>
+              <Button size="small" variant="outlined" startIcon={<RotateCcw className="w-3.5 h-3.5" />}
+                onClick={() => rehire(detailOf)} sx={{ flexShrink: 0 }}>
+                They are back
+              </Button>
+            </div>
+          )}
+
+          {/* Earlier stretches — the history a second record would have split. */}
+          {!!detailOf?.spells?.length && (
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                Earlier with us
+              </p>
+              <div className="grid gap-0.5">
+                {detailOf.spells.map((sp, i) => (
+                  <p key={i} className="text-[11px] text-slate-600">
+                    {onDate(sp.joinedOn)} to {onDate(sp.leftOn)}
+                    {sp.endedByName ? ` · recorded by ${sp.endedByName}` : ''}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Login — the thing that makes their access role and notifications
               actually work. Without it, a role is set and never takes effect. */}
           {detailOf?.isActive && (
-            <div className="rounded-xl border border-slate-200 p-3 flex items-center justify-between gap-3">
+            <div className="rounded-xl border border-slate-200 p-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs font-bold text-slate-700">
                   {detailOf?.userId ? 'Can sign in' : 'No login yet'}
@@ -484,12 +810,145 @@ export default function StaffPage() {
                     : 'Without a login their access role does nothing and they get no alerts.'}
                 </p>
               </div>
-              {!detailOf?.userId && (
-                <Button size="small" variant="outlined" onClick={() => giveLogin(detailOf!)}
-                  className="!rounded-xl !normal-case !font-bold !text-xs shrink-0">
-                  Give login
+              <div className="flex flex-col gap-1.5 shrink-0">
+                {!detailOf?.userId ? (
+                  <Button size="small" variant="outlined" onClick={() => giveLogin(detailOf!)}>
+                    Give login
+                  </Button>
+                ) : (
+                  <>
+                    {/* Neither of these ends employment. Somebody under
+                        investigation should lose their login and keep their
+                        job; somebody who lost the slip of paper should get a
+                        new password, not a new staff record. */}
+                    <Button size="small" variant="outlined" startIcon={<KeyRound className="w-3.5 h-3.5" />}
+                      onClick={() => resetPassword(detailOf)}>
+                      New password
+                    </Button>
+                    <Button size="small" variant="outlined" color="error"
+                      onClick={() => revokeLogin(detailOf)}>
+                      Stop them signing in
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ------------------------------------------------- police check */}
+          <div className="rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                Police check
+              </span>
+            </div>
+            <p className="text-xs text-slate-700">
+              {detailOf?.verification?.expiresOn
+                ? <>Good until <strong>{onDate(detailOf.verification.expiresOn)}</strong>
+                  {detailOf.verification.verifiedBy ? ` · done by ${detailOf.verification.verifiedBy}` : ''}</>
+                : 'No date recorded. Use “Edit details” to add one.'}
+            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              {detailOf?.verification?.hasDocument ? (
+                <Button size="small" variant="outlined" startIcon={<Download className="w-3.5 h-3.5" />}
+                  onClick={() => openSigned(`/staff/${detailOf._id}/verification/download`, 'Could not open that scan')}>
+                  See the scan
+                </Button>
+              ) : (
+                <span className="text-[11px] text-amber-700">
+                  No scan filed — a date with no paper behind it reads as an answer when it is not.
+                </span>
+              )}
+              {detailOf?.isActive && (
+                <Button size="small" component="label" variant="text" disabled={busy}
+                  startIcon={<Upload className="w-3.5 h-3.5" />}>
+                  {detailOf?.verification?.hasDocument ? 'Replace scan' : 'Attach scan'}
+                  <input hidden type="file" accept="application/pdf,image/*"
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadVerification(f); }} />
                 </Button>
               )}
+            </div>
+          </div>
+
+          {/* --------------------------------------------- photo and papers */}
+          <div className="rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <FileText className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                Papers and photograph
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 mb-2.5">
+              {detailOf?.person?.hasPhoto ? (
+                <Button size="small" variant="outlined" startIcon={<Camera className="w-3.5 h-3.5" />}
+                  onClick={() => openSigned(`/staff/${detailOf._id}/photo`, 'Could not open that photograph')}>
+                  See photograph
+                </Button>
+              ) : (
+                <span className="text-[11px] text-slate-500">No photograph yet.</span>
+              )}
+              {detailOf?.isActive && (
+                <Button size="small" component="label" variant="text" disabled={busy}
+                  startIcon={<Upload className="w-3.5 h-3.5" />}>
+                  {detailOf?.person?.hasPhoto ? 'Replace photograph' : 'Add photograph'}
+                  <input hidden type="file" accept="image/*"
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadPhoto(f); }} />
+                </Button>
+              )}
+            </div>
+
+            {docs.length === 0 ? (
+              <p className="text-[11px] text-slate-500 italic">
+                Nothing filed yet — ID proof, the agency&apos;s letter, a contract.
+              </p>
+            ) : (
+              <div className="grid gap-1.5">
+                {docs.map(d => (
+                  <div key={d._id} className="flex items-center gap-2 rounded-xl border border-slate-200 p-2.5">
+                    <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-700 font-medium truncate">{d.name}</p>
+                      <p className="text-[11px] text-slate-500">
+                        {onDate(d.uploadedAt)} · {d.uploadedByName}
+                      </p>
+                    </div>
+                    <IconButton size="small" title="Open"
+                      onClick={() => openSigned(`/staff/${detailOf!._id}/documents/${d._id}/download`, 'Could not open that document')}>
+                      <Download className="w-3.5 h-3.5 text-slate-400" />
+                    </IconButton>
+                    {detailOf?.isActive && (
+                      <IconButton size="small" title="Remove" onClick={() => removeDoc(d)}>
+                        <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+                      </IconButton>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {detailOf?.isActive && (
+              <Button size="small" component="label" variant="outlined" fullWidth disabled={busy}
+                startIcon={<Upload className="w-3.5 h-3.5" />} sx={{ mt: 1.5 }}>
+                {busy ? 'Uploading…' : 'File a document'}
+                <input hidden type="file" accept="application/pdf,image/*"
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadDoc(f); }} />
+              </Button>
+            )}
+          </div>
+
+          {/* ----------------------------------------- emergency contact */}
+          {detailOf?.emergencyContact?.name && (
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                Who to call in an emergency
+              </p>
+              <p className="text-sm text-slate-700">
+                {detailOf.emergencyContact.name}
+                {detailOf.emergencyContact.relation ? ` (${detailOf.emergencyContact.relation})` : ''}
+                {detailOf.emergencyContact.phone ? ` · ${detailOf.emergencyContact.phone}` : ''}
+              </p>
             </div>
           )}
 
@@ -509,7 +968,12 @@ export default function StaffPage() {
                       <p className="text-sm text-slate-700 font-medium">
                         {a.scope === 'SOCIETY' ? 'Whole society' : a.blockName}
                         <Chip size="small" label={a.rank === 'PRIMARY' ? 'first' : 'backup'}
-                          className={`!ml-1.5 !h-4 !text-[9px] !font-bold ${a.rank === 'PRIMARY' ? '!bg-indigo-50 !text-indigo-700' : '!bg-slate-100 !text-slate-500'}`} />
+                          sx={{
+                            ml: 1, height: 18, fontSize: 10,
+                            ...(a.rank === 'PRIMARY'
+                              ? { bgcolor: '#eef2ff', color: '#4338ca' }
+                              : { bgcolor: '#f1f5f9', color: '#64748b' }),
+                          }} />
                       </p>
                       <p className="text-[11px] text-slate-500">{a.categories.map(pretty).join(', ')}</p>
                     </div>
@@ -527,7 +991,7 @@ export default function StaffPage() {
               <p className="text-xs font-bold text-slate-600">Give them something to cover</p>
               <div className="flex gap-2">
                 <FormControl size="small" className="w-32">
-                  <Select value={assignForm.scope} className="!rounded-xl"
+                  <Select value={assignForm.scope}
                     onChange={e => setAssignForm({ ...assignForm, scope: e.target.value, blockId: '' })}>
                     <MenuItem value="BLOCK">One wing</MenuItem>
                     <MenuItem value="SOCIETY">Everywhere</MenuItem>
@@ -535,7 +999,7 @@ export default function StaffPage() {
                 </FormControl>
                 {assignForm.scope === 'BLOCK' && (
                   <FormControl size="small" className="flex-1">
-                    <Select displayEmpty value={assignForm.blockId} className="!rounded-xl"
+                    <Select displayEmpty value={assignForm.blockId}
                       onChange={e => setAssignForm({ ...assignForm, blockId: e.target.value })}>
                       <MenuItem value="" disabled><em className="text-slate-400">Which wing</em></MenuItem>
                       {look?.blocks.map(b => <MenuItem key={b._id} value={b._id}>{b.name}</MenuItem>)}
@@ -543,7 +1007,7 @@ export default function StaffPage() {
                   </FormControl>
                 )}
                 <FormControl size="small" className="w-28">
-                  <Select value={assignForm.rank} className="!rounded-xl"
+                  <Select value={assignForm.rank}
                     onChange={e => setAssignForm({ ...assignForm, rank: e.target.value })}>
                     <MenuItem value="PRIMARY">First</MenuItem>
                     <MenuItem value="BACKUP">Backup</MenuItem>
@@ -559,17 +1023,149 @@ export default function StaffPage() {
                         ...assignForm,
                         categories: on ? assignForm.categories.filter((x: string) => x !== c) : [...assignForm.categories, c],
                       })}
-                      className={`!font-bold !text-[11px] !cursor-pointer ${on ? '!bg-indigo-600 !text-white' : '!bg-white !border !border-slate-200 !text-slate-500'}`} />
+                      sx={{
+                        cursor: 'pointer', fontSize: 11,
+                        ...(on
+                          ? { bgcolor: '#4f46e5', color: '#fff' }
+                          : { bgcolor: '#fff', border: '1px solid #e2e8f0', color: '#64748b' }),
+                      }} />
                   );
                 })}
               </div>
               <Button size="small" variant="outlined" fullWidth onClick={addAssignment}
                 disabled={!assignForm.categories.length || (assignForm.scope === 'BLOCK' && !assignForm.blockId)}
-                className="!rounded-xl !normal-case !font-bold !text-xs">
+              >
                 Add
               </Button>
             </div>
           )}
+
+          {/* ---------------------------------------------------- the rota */}
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <CalendarClock className="w-3.5 h-3.5 text-slate-500" />
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                  Hours they work
+                </span>
+              </div>
+              {onDutyNow !== null && detailOf?.isActive && (
+                <Chip size="small" label={onDutyNow ? 'On duty now' : 'Not on duty now'}
+                  sx={onDutyNow
+                    ? { bgcolor: '#ecfdf5', color: '#047857', fontWeight: 700, fontSize: 10, height: 20 }
+                    : { bgcolor: '#f1f5f9', color: '#64748b', fontWeight: 700, fontSize: 10, height: 20 }} />
+              )}
+            </div>
+
+            {shifts.length === 0 ? (
+              <p className="text-xs text-slate-500 italic">
+                No hours set. Work can reach them at any time — which is the right default until
+                somebody builds the rota.
+              </p>
+            ) : (
+              <div className="grid gap-1.5">
+                {shifts.map(s => (
+                  <div key={s._id} className="flex items-center gap-2 rounded-xl border border-slate-200 p-2.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-700 font-medium">{DAYS[s.weekday]}</p>
+                      <p className="text-[11px] text-slate-500 tabular-nums">
+                        {s.from}–{s.to}{s.to <= s.from ? ' (through the night)' : ''}
+                      </p>
+                    </div>
+                    {detailOf?.isActive && (
+                      <IconButton size="small" onClick={() => removeShiftRow(s._id)}>
+                        <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+                      </IconButton>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {detailOf?.isActive && (
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 mt-2 space-y-2">
+                <div className="flex gap-2">
+                  <FormControl size="small" className="flex-1">
+                    <Select value={shiftForm.weekday}
+                      onChange={e => setShiftForm({ ...shiftForm, weekday: Number(e.target.value) })}>
+                      {DAYS.map((d, i) => <MenuItem key={d} value={i}>{d}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <TextField size="small" type="time" value={shiftForm.from} className="w-28"
+                    onChange={e => setShiftForm({ ...shiftForm, from: e.target.value })} />
+                  <TextField size="small" type="time" value={shiftForm.to} className="w-28"
+                    onChange={e => setShiftForm({ ...shiftForm, to: e.target.value })} />
+                </div>
+                <Button size="small" variant="outlined" fullWidth onClick={addShift}>Add these hours</Button>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  An end time earlier than the start means the shift runs through the night —
+                  22:00 to 06:00 is a normal guard shift and is understood as one.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* -------------------------------------------------- days away */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <CalendarOff className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                Days away
+              </span>
+            </div>
+
+            {leave.length === 0 ? (
+              <p className="text-xs text-slate-500 italic">Nothing recorded.</p>
+            ) : (
+              <div className="grid gap-1.5">
+                {leave.map(l => (
+                  <div key={l._id} className="flex items-center gap-2 rounded-xl border border-slate-200 p-2.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-700 font-medium">
+                        {onDate(l.from)} to {onDate(l.to)}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {LEAVE_LABEL[l.kind] || 'Away'}{l.reason ? ` · ${l.reason}` : ''}
+                      </p>
+                    </div>
+                    {detailOf?.isActive && (
+                      <IconButton size="small" onClick={() => cancelLeave(l._id)}>
+                        <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+                      </IconButton>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {detailOf?.isActive && (
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 mt-2 space-y-2">
+                <div className="flex gap-2">
+                  <TextField size="small" type="date" label="First day" className="flex-1"
+                    value={leaveForm.from} onChange={e => setLeaveForm({ ...leaveForm, from: e.target.value })}
+                    slotProps={{ inputLabel: { shrink: true } }} />
+                  <TextField size="small" type="date" label="Last day" className="flex-1"
+                    value={leaveForm.to} onChange={e => setLeaveForm({ ...leaveForm, to: e.target.value })}
+                    slotProps={{ inputLabel: { shrink: true } }} />
+                </div>
+                <FormControl size="small" fullWidth>
+                  <Select value={leaveForm.kind}
+                    onChange={e => setLeaveForm({ ...leaveForm, kind: e.target.value })}>
+                    {Object.entries(LEAVE_LABEL).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                <Button size="small" variant="outlined" fullWidth onClick={addLeave}
+                  disabled={!leaveForm.from || !leaveForm.to}>
+                  Record it
+                </Button>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  While they are away, work goes to the backup instead of sitting in their name.
+                  Nothing here is an attendance register — this only records what the office
+                  already knows in advance.
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 flex items-start gap-2">
             <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
@@ -580,14 +1176,14 @@ export default function StaffPage() {
             </p>
           </div>
         </DialogContent>
-        <DialogActions className="!px-6 !py-3 !justify-between">
+        <DialogActions sx={{ justifyContent: 'space-between' }}>
           {detailOf?.isActive ? (
             <Button color="error" startIcon={<UserMinus className="w-4 h-4" />}
-              onClick={() => detailOf && end(detailOf)} className="!normal-case !font-bold">
+              onClick={() => detailOf && end(detailOf)}>
               They have left
             </Button>
           ) : <span />}
-          <Button onClick={() => setDetailOf(null)} className="!normal-case !font-bold">Close</Button>
+          <Button onClick={() => setDetailOf(null)} color="inherit">Close</Button>
         </DialogActions>
       </Dialog>
     </div>

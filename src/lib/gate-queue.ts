@@ -15,7 +15,9 @@
  */
 
 const QUEUE_KEY = 'resismart.gate.queue';
-const KEY_KEY = 'resismart.gate.publicKey';
+/** The pre-rotation cache: ONE key. Still read, never written. See `cachedPublicKeys`. */
+const LEGACY_KEY_KEY = 'resismart.gate.publicKey';
+const KEYS_KEY = 'resismart.gate.publicKeys';
 
 export interface QueuedScan {
   clientId: string;
@@ -55,11 +57,46 @@ export function removeQueued(clientIds: string[]) {
 
 // ------------------------------------------------------------ the key cache
 
-export function cachePublicKey(pem: string) {
-  try { localStorage.setItem(KEY_KEY, pem); } catch { /* nothing to do */ }
+/**
+ * EVERY key the server will accept, not just the newest one.
+ *
+ * This cache used to hold a single PEM, and that made the server's two-key
+ * rotation useless at the only place it matters. The server keeps a retired key
+ * verifiable for a grace window precisely because every pass already sitting in
+ * a guest's WhatsApp was signed with it — but a device that refreshed after a
+ * rotation and stored only the newest key would reject all of them offline as
+ * "tampered with", which is a real guest turned away at a gate that cannot
+ * phone anybody to check. Store the list; try them all.
+ */
+export function cachePublicKeys(pems: string[]) {
+  const clean = pems.filter(Boolean);
+  if (!clean.length) return;
+  try {
+    localStorage.setItem(KEYS_KEY, JSON.stringify(clean));
+    // The old single-key entry is removed rather than left behind, so a device
+    // cannot keep verifying against a key the server has since dropped.
+    localStorage.removeItem(LEGACY_KEY_KEY);
+  } catch { /* nothing to do */ }
 }
-export function cachedPublicKey(): string | null {
-  try { return localStorage.getItem(KEY_KEY); } catch { return null; }
+
+/**
+ * The cached keys, newest first.
+ *
+ * Falls back to the old single-key entry, because a guard tablet that has been
+ * offline since before this shipped is holding one and would otherwise lose
+ * offline verification entirely at the moment it needs it — the failure this
+ * whole file exists to avoid. It is upgraded to the list on the next refresh.
+ */
+export function cachedPublicKeys(): string[] {
+  try {
+    const raw = localStorage.getItem(KEYS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) return parsed.filter((k) => typeof k === 'string');
+    }
+    const legacy = localStorage.getItem(LEGACY_KEY_KEY);
+    return legacy ? [legacy] : [];
+  } catch { return []; }
 }
 
 /** PEM → the raw SPKI bytes WebCrypto wants. */
@@ -94,19 +131,23 @@ export interface OfflineCheck {
  * on the screen.
  */
 export async function verifyOffline(payload: string): Promise<OfflineCheck> {
-  const pem = cachedPublicKey();
-  if (!pem) return { valid: false, reason: 'This device has not been set up for offline use yet.' };
+  const pems = cachedPublicKeys();
+  if (!pems.length) return { valid: false, reason: 'This device has not been set up for offline use yet.' };
 
   try {
     const [body, sig] = payload.split('.');
     if (!body || !sig) return { valid: false, reason: 'That is not a ResiSmart pass.' };
 
-    const key = await crypto.subtle.importKey('spki', pemToDer(pem), { name: 'Ed25519' }, false, ['verify']);
-    const good = await crypto.subtle.verify(
-      'Ed25519', key,
-      b64urlToBytes(sig) as unknown as BufferSource,
-      new TextEncoder().encode(body) as unknown as BufferSource,
-    );
+    // Newest first, exactly as the server orders them, so the common case
+    // matches on the first key and a rotation costs one extra verify on the
+    // rare pass that predates it.
+    const signature = b64urlToBytes(sig) as unknown as BufferSource;
+    const signed = new TextEncoder().encode(body) as unknown as BufferSource;
+    let good = false;
+    for (const pem of pems) {
+      const key = await crypto.subtle.importKey('spki', pemToDer(pem), { name: 'Ed25519' }, false, ['verify']);
+      if (await crypto.subtle.verify('Ed25519', key, signature, signed)) { good = true; break; }
+    }
     if (!good) return { valid: false, reason: 'This pass has been tampered with.' };
 
     const claims = JSON.parse(new TextDecoder().decode(b64urlToBytes(body)));

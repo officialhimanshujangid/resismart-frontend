@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
-import { CircularProgress, Button, Alert, LinearProgress, Chip } from '@mui/material';
-import { CheckCircle2, Circle, ArrowRight, ClipboardList, Lock } from 'lucide-react';
+import { Button, Alert, LinearProgress, Chip } from '@mui/material';
+import { CheckCircle2, Circle, ArrowRight, ClipboardList, LayoutGrid, Lock } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
+import PageSkeleton from '@/components/common/PageSkeleton';
+import ErrorState from '@/components/common/ErrorState';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 
 /**
@@ -44,20 +46,22 @@ export default function OperationsSetupPage() {
   const [loading, setLoading] = useState(true);
   const [state, setState] = useState<State | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.get('/gate/setup');
-        setState(res.data?.data || null);
-      } catch (e: any) {
-        showToast(e.response?.data?.message || 'Could not load the checklist', 'error');
-      } finally { setLoading(false); }
-    })();
-    /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, []);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/visitors/setup');
+      setState(res.data?.data || null);
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not load the checklist', 'error');
+    } finally { setLoading(false); }
+  }, [showToast]);
 
-  if (loading) return <div className="flex justify-center py-24"><CircularProgress /></div>;
-  if (!state) return null;
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <PageSkeleton label="Loading the checklist" />;
+  // This used to `return null` — a blank white page that looks exactly like a
+  // society with nothing left to set up, which is the opposite of the truth.
+  if (!state) return <ErrorState message="The setting-up checklist did not load." onRetry={load} />;
 
   const required = state.steps.filter(s => !s.optional);
   const doneCount = required.filter(s => s.done).length;
@@ -73,19 +77,19 @@ export default function OperationsSetupPage() {
       />
 
       {state.ready ? (
-        <Alert severity="success" icon={<CheckCircle2 className="w-5 h-5" />} className="!rounded-2xl !text-sm">
+        <Alert severity="success" icon={<CheckCircle2 className="w-5 h-5" />} className="rounded-2xl">
           Everything needed is answered. Anything still unticked below is optional.
         </Alert>
       ) : state.blocking ? (
-        <Alert severity="warning" icon={<Lock className="w-5 h-5" />} className="!rounded-2xl !text-sm">
-          <strong>The gate console will refuse the first entry until a gate is named.</strong>{' '}
+        <Alert severity="warning" icon={<Lock className="w-5 h-5" />} className="rounded-2xl">
+          <strong>The gate desk will refuse the first entry until a gate is named.</strong>{' '}
           That is the one thing enforced here — a register that cannot say which door somebody
           used is worth very little, and it cannot be fixed afterwards. Everything else on this
           list is advice.
         </Alert>
       ) : (
-        <Alert severity="info" className="!rounded-2xl !text-sm">
-          This society has already recorded <strong>{state.entriesEverRecorded}</strong> gate{' '}
+        <Alert severity="info" className="rounded-2xl">
+          This society has already recorded <strong>{state.entriesEverRecorded}</strong> visitor{' '}
           {state.entriesEverRecorded === 1 ? 'entry' : 'entries'}, so nothing here is blocking you.
           The unanswered items below are still worth finishing — each one is something the software
           currently cannot do for you.
@@ -98,7 +102,7 @@ export default function OperationsSetupPage() {
           <span className="text-slate-400">{pct}%</span>
         </div>
         <LinearProgress variant="determinate" value={pct}
-          className="!h-2 !rounded-full !bg-slate-100" />
+          sx={{ height: 8, borderRadius: 999, bgcolor: '#f1f5f9' }} />
       </div>
 
       <div className="space-y-2">
@@ -117,10 +121,10 @@ export default function OperationsSetupPage() {
                     {s.title}
                   </p>
                   {s.optional && (
-                    <Chip size="small" label="optional" className="!bg-slate-100 !text-slate-500 !font-bold !text-[10px] !h-4" />
+                    <Chip size="small" label="optional" sx={{ bgcolor: '#f1f5f9', color: '#64748b', height: 18 }} />
                   )}
                   {s.module && (
-                    <Chip size="small" label={s.module.toLowerCase()} className="!bg-indigo-50 !text-indigo-600 !font-bold !text-[10px] !h-4" />
+                    <Chip size="small" label={s.module.toLowerCase()} sx={{ bgcolor: 'rgba(10, 91, 215, 0.08)', color: 'primary.dark', height: 18 }} />
                   )}
                 </div>
                 <p className="text-xs text-slate-600 mt-1 leading-relaxed">{s.why}</p>
@@ -131,9 +135,16 @@ export default function OperationsSetupPage() {
         ))}
       </div>
 
-      <div className="flex justify-end pt-2">
-        <Button variant="outlined" onClick={() => router.push('/dashboard/gate/settings')}
-          className="!rounded-xl !normal-case !font-bold">
+      {/* The first question of all, and the one that was unanswerable until now:
+        * which parts of operations this society actually uses. A checklist that
+        * marches a society through setting up Complaints it has no intention of
+        * running is a checklist nobody finishes. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+        <Button variant="outlined" startIcon={<LayoutGrid className="w-4 h-4" />}
+          onClick={() => router.push('/dashboard/operations/modules')}>
+          What this society uses
+        </Button>
+        <Button variant="outlined" onClick={() => router.push('/dashboard/visitors/settings')}>
           Operations settings
         </Button>
       </div>

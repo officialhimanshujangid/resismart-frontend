@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { CircularProgress } from '@mui/material';
@@ -39,6 +40,20 @@ export default function DashboardPage() {
 
       {role.startsWith('SYSTEM_') ? (
         <OwnerDashboard />
+      ) : role === 'SOCIETY_EMPLOYEE' ? (
+        /*
+         * Checked BEFORE the `SOCIETY_` prefix, and that order is the fix.
+         *
+         * A watchman or a plumber matches `startsWith('SOCIETY_')`, so they
+         * landed on the society-admin dashboard — a billing and subscription
+         * panel whose two calls 403 straight into an empty state. The first
+         * screen of their working day was a page telling them nothing, made of
+         * numbers they are not allowed to see.
+         *
+         * Their work lives on My Work; this sends them there rather than
+         * rebuilding it in a second place.
+         */
+        <StaffLanding />
       ) : role.startsWith('SOCIETY_') ? (
         <SocietyAdminDashboard />
       ) : (
@@ -52,6 +67,32 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
 } from 'recharts';
+
+/**
+ * Where a society employee actually starts their day.
+ *
+ * A redirect rather than a duplicate dashboard: My Work already shows their
+ * open jobs, today's shift and their verification status, and two screens
+ * showing the same list is two screens to keep in step. Rendered as a real
+ * card as well as a redirect, so a slow navigation shows something meant for
+ * them rather than a blank flash.
+ */
+function StaffLanding() {
+  const router = useRouter();
+  useEffect(() => { router.replace('/dashboard/staff/my-work'); }, [router]);
+
+  return (
+    <Card>
+      <CardContent className="py-10 text-center space-y-3">
+        <ShieldCheck className="w-8 h-8 mx-auto text-[#0a5bd7]" />
+        <p className="text-sm font-semibold text-slate-800">Taking you to your work…</p>
+        <Link href="/dashboard/staff/my-work" className="text-sm font-semibold text-[#0a5bd7] underline underline-offset-2">
+          Open My Work
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
 
 function OwnerDashboard() {
   const [loading, setLoading] = useState(true);

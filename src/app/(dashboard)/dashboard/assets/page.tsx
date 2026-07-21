@@ -10,6 +10,7 @@ import { Plus, QrCode, Wrench, AlertTriangle, Printer, History } from 'lucide-re
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 import { DataTable, ColumnDef } from '@/components/common/DataTable';
 import PageHeader from '@/components/common/PageHeader';
+import PageSkeleton from '@/components/common/PageSkeleton';
 import QRCode from 'qrcode';
 
 /**
@@ -176,7 +177,7 @@ export default function AssetsPage() {
     },
   ];
 
-  if (loading) return <div className="flex justify-center py-24"><CircularProgress /></div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="space-y-4 pb-24">
