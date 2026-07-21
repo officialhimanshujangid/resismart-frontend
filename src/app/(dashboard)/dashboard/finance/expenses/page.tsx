@@ -34,6 +34,10 @@ export default function ExpensesPage() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [blocks, setBlocks] = useState<{ _id: string; name: string }[]>([]);
+  // What a voucher can be tagged against. Both optional and both fail quietly:
+  // a society without the operations modules simply never sees the pickers.
+  const [openComplaints, setOpenComplaints] = useState<{ _id: string; ticketCode: string; title: string }[]>([]);
+  const [assets, setAssets] = useState<{ _id: string; name: string; blockName?: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
@@ -42,7 +46,7 @@ export default function ExpensesPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ vendorId: '', description: '', paymentMode: 'BANK', lines: [{ expenseAccountCode: '', amount: '', blockId: '' }] });
+  const [form, setForm] = useState({ vendorId: '', description: '', paymentMode: 'BANK', lines: [{ expenseAccountCode: '', amount: '', blockId: '', complaintId: '', assetId: '' }] });
 
 
   const [rejectTarget, setRejectTarget] = useState<Expense | null>(null);
@@ -54,16 +58,23 @@ export default function ExpensesPage() {
       setLoading(true);
       const params = new URLSearchParams({ page: String(page + 1), pageSize: String(pageSize) });
       if (status) params.append('status', status);
-      const [ex, ve, ac, bl] = await Promise.all([
+      const [ex, ve, ac, bl, co, as] = await Promise.all([
         api.get(`/finance/society/expenses?${params.toString()}`),
         api.get('/finance/society/vendors'),
         api.get('/finance/society/ledger/accounts?type=EXPENSE'),
         api.get('/societies/blocks'),
+        // Both are operations modules a society may not use at all, and a
+        // treasurer holds no complaints permission in plenty of societies —
+        // so a refusal here must cost nothing but the picker.
+        api.get('/complaints?pageSize=50&open=true').catch(() => null),
+        api.get('/complaints/assets').catch(() => null),
       ]);
       setExpenses(ex.data.expenses); setTotal(ex.data.pagination?.total ?? 0);
       // The vendors endpoint is paginated now, so it returns { vendors, pagination }.
       setVendors(ve.data?.vendors ?? ve.data ?? []); setAccounts(ac.data);
       setBlocks(Array.isArray(bl.data) ? bl.data : (bl.data?.blocks ?? []));
+      setOpenComplaints(co?.data?.rows || []);
+      setAssets(as?.data?.data?.assets || []);
     } catch (e: any) { showToast(e.response?.data?.error || 'Failed to load expenses', 'error'); }
     finally { setLoading(false); }
   }, [page, pageSize, status, showToast]);
@@ -80,10 +91,12 @@ export default function ExpensesPage() {
           expenseAccountCode: l.expenseAccountCode,
           amountPaise: Math.round(parseFloat(l.amount) * 100),
           blockId: l.blockId || undefined,
+          complaintId: l.complaintId || undefined,
+          assetId: l.assetId || undefined,
         })),
       });
       showToast('Expense created', 'success'); setCreateOpen(false);
-      setForm({ vendorId: '', description: '', paymentMode: 'BANK', lines: [{ expenseAccountCode: '', amount: '', blockId: '' }] });
+      setForm({ vendorId: '', description: '', paymentMode: 'BANK', lines: [{ expenseAccountCode: '', amount: '', blockId: '', complaintId: '', assetId: '' }] });
       load();
     } catch (e: any) { showToast(e.response?.data?.error || 'Failed to create expense', 'error'); }
     finally { setSaving(false); }
@@ -186,7 +199,7 @@ export default function ExpensesPage() {
           <TextField hiddenLabel fullWidth size="small" placeholder="Description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
           <div className="space-y-2">
             <div className="flex items-center justify-between"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Expense lines</span>
-              <Button size="small" onClick={() => setForm(f => ({ ...f, lines: [...f.lines, { expenseAccountCode: '', amount: '', blockId: '' }] }))} startIcon={<Plus className="w-3 h-3" />}>Add line</Button>
+              <Button size="small" onClick={() => setForm(f => ({ ...f, lines: [...f.lines, { expenseAccountCode: '', amount: '', blockId: '', complaintId: '', assetId: '' }] }))} startIcon={<Plus className="w-3 h-3" />}>Add line</Button>
             </div>
             {form.lines.map((l, i) => (
               <div key={i} className="flex gap-2 items-center">
@@ -204,6 +217,51 @@ export default function ExpensesPage() {
                 {form.lines.length > 1 && <IconButton size="small" onClick={() => setForm(f => ({ ...f, lines: f.lines.filter((_, idx) => idx !== i) }))}><Trash2 className="w-4 h-4 text-slate-400" /></IconButton>}
               </div>
             ))}
+
+            {/* ------------------------------------------- what it was spent ON
+              *
+              * The two questions a committee asks that nothing could answer:
+              * "what has that lift cost us this year" and "how much did fixing
+              * that complaint come to". Money and maintenance lived in two
+              * modules with no thread between them until now.
+              *
+              * Offered on the FIRST line only, and only when there is something
+              * to point at — most vouchers are one line and asking twice per row
+              * would bury the amount box under dropdowns nobody uses.
+              */}
+            {(openComplaints.length > 0 || assets.length > 0) && (
+              <div className="flex gap-2 items-center flex-wrap pt-1">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  What for (optional)
+                </span>
+                {openComplaints.length > 0 && (
+                  <FormControl size="small" className="min-w-[13rem] flex-1">
+                    <Select displayEmpty value={form.lines[0]?.complaintId || ''}
+                      onChange={e => setLine(0, { complaintId: e.target.value })}>
+                      <MenuItem value=""><span className="text-slate-400">No complaint</span></MenuItem>
+                      {openComplaints.map(c => (
+                        <MenuItem key={c._id} value={c._id} className="!text-xs">
+                          {c.ticketCode} · {c.title}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
+                {assets.length > 0 && (
+                  <FormControl size="small" className="min-w-[11rem] flex-1">
+                    <Select displayEmpty value={form.lines[0]?.assetId || ''}
+                      onChange={e => setLine(0, { assetId: e.target.value })}>
+                      <MenuItem value=""><span className="text-slate-400">No equipment</span></MenuItem>
+                      {assets.map(a => (
+                        <MenuItem key={a._id} value={a._id} className="!text-xs">
+                          {a.name}{a.blockName ? ` · ${a.blockName}` : ''}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
+              </div>
+            )}
             {blocks.length > 1 && (
               <p className="text-[10px] text-slate-400 leading-relaxed">
                 Leave a line as <b>Common</b> unless the cost belongs to one wing alone — a lift repair or a wing&apos;s

@@ -10,11 +10,9 @@ import {
   ShieldCheck,
   Home,
   Landmark,
-  KeyRound,
   DoorOpen,
-  HardHat,
   MessageSquareWarning,
-  Wrench
+  Bell
 } from 'lucide-react';
 
 export interface SidebarLink {
@@ -109,6 +107,29 @@ export const filterLinksByAccess = (
     const next = link.children ? { ...link, children: filterLinksByAccess(link.children, permissions) } : link;
     // A parent whose children were all filtered away is an empty menu that
     // opens onto nothing — drop it rather than leave a dead heading.
+    if (next.children && next.children.length === 0 && !next.href) return acc;
+    acc.push(next);
+    return acc;
+  }, []);
+
+/**
+ * Drop entries this kind of user is not meant to see.
+ *
+ * Recursive, and that is the fix rather than a flourish. The system branch used
+ * to filter with a single `rawLinks.filter(...)` over the top level only, so
+ * every `permittedUserType` on a nested entry was decorative — a SYSTEM_EMPLOYEE
+ * was shown "Society Billing → Plans & Pricing", marked owner-only, and found
+ * out it was owner-only by being refused when they clicked it.
+ *
+ * Not a boundary. Every route enforces its own permission; this only stops the
+ * menu from advertising doors that will not open.
+ */
+export const filterLinksByUserType = (items: SidebarLink[], role: string): SidebarLink[] =>
+  items.reduce<SidebarLink[]>((acc, link) => {
+    const allowed = !link.permittedUserType
+      || link.permittedUserType.some(r => role === r || (r === 'RESIDENT_OWNER' && role.startsWith('RESIDENT_')));
+    if (!allowed) return acc;
+    const next = link.children ? { ...link, children: filterLinksByUserType(link.children, role) } : link;
     if (next.children && next.children.length === 0 && !next.href) return acc;
     acc.push(next);
     return acc;
@@ -213,101 +234,173 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         ],
       },
     ];
-    return rawLinks.filter(link => !link.permittedUserType || link.permittedUserType.some(r => role === r || (r === 'RESIDENT_OWNER' && role.startsWith('RESIDENT_'))));
+    return filterLinksByUserType(rawLinks, role);
   }
 
   // Society Admin Links
+  //
+  // Shaped as five top-level groups — Property, Operations, Finance, Housing,
+  // Society — because the flat version had forty-nine entries at one level and
+  // twenty-two of them were Finance. Nothing was gained by the flatness: a
+  // person hunting for Charge Heads scrolled past Bank Reconciliation either
+  // way. Grouping costs one click and makes the menu readable at a glance.
   if (role.startsWith('SOCIETY_')) {
     return [
       ...defaultLinks,
       {
-        label: 'My Settings',
-        icon: <Settings className="w-5 h-5" />,
-        moduleKey: 'society_settings',
+        label: 'Property',
+        icon: <Building className="w-5 h-5" />,
         children: [
+          { label: 'Flats', href: '/dashboard/flats' },
           { label: 'Blocks', href: '/dashboard/blocks' },
           { label: 'Flat Sizes', href: '/dashboard/flat-sizes' },
-          // No accessModule: the page decides what each visitor may do, and a
-          // displaced admin has to be able to reach it in order to object.
-          { label: 'Admin Handover', href: '/dashboard/settings/admin-transfer' }
-        ]
+          // "Approvals" plain was one of two entries by that name — this one is
+          // residents asking to join a flat, the other is a visitor at the gate.
+          // Two unrelated jobs sharing a word is how a menu stops being read.
+          { label: 'Resident Requests', href: '/dashboard/approvals' },
+        ],
       },
       {
-        label: 'Flats',
-        icon: <Building className="w-5 h-5" />,
-        href: '/dashboard/flats'
-      },
-      {
-        label: 'Approvals',
-        icon: <ShieldCheck className="w-5 h-5" />,
-        href: '/dashboard/approvals'
-      },
-      {
-        label: 'Committee',
-        icon: <Landmark className="w-5 h-5" />,
-        href: '/dashboard/committee',
-        accessModule: 'COMMITTEE_MANAGE',
-      },
-      {
-        label: 'Who Can Do What',
-        icon: <KeyRound className="w-5 h-5" />,
-        href: '/dashboard/access-roles',
-        accessModule: 'ACCESS_MANAGE',
-      },
-      {
-        label: 'Gate',
+        label: 'Operations',
         icon: <DoorOpen className="w-5 h-5" />,
-        /**
-         * `opsModule` sits on the CHILDREN here, not on the group — and that
-         * is load-bearing rather than fussy.
-         *
-         * Operations Settings is where the modules themselves are switched on
-         * and off. Gate it on GATE, and an admin who turns the gate off has
-         * locked the only door back in: the screen that could undo it is the
-         * screen that just disappeared. So every gate screen is gated, and the
-         * settings page never is.
-         */
         children: [
-          // The console itself is the guard's whole world, so it comes first
-          // and carries the permission a guard actually holds.
-          { label: 'Gate Console', href: '/dashboard/gate', opsModule: 'GATE', accessModule: 'GATE_CONSOLE' },
-          // No accessModule: answering comes from having been asked, not from a
-          // permission. A committee member with no gate rights still gets asked
-          // about their own visitors.
-          { label: 'Approvals', href: '/dashboard/gate/approvals', opsModule: 'GATE' },
-          { label: 'Scan a Pass', href: '/dashboard/gate/scan', opsModule: 'GATE', accessModule: 'GATE_CONSOLE' },
-          { label: 'Gate Records', href: '/dashboard/gate/log', opsModule: 'GATE', accessModule: 'GATE_LOGS' },
-          // Issuing is a resident's act, so this carries no permission — a
-          // committee member inviting their own guest is not doing gate work.
-          { label: 'Gate Passes', href: '/dashboard/gate/passes', opsModule: 'GATE' },
-          { label: 'My Preferences', href: '/dashboard/gate/preferences', opsModule: 'GATE' },
+          // First, because it is what a new society needs and the only place
+          // that explains why the console might be refusing them.
+          { label: 'Setting Up', href: '/dashboard/operations/setup', accessModule: 'OPS_SETTINGS' },
+          {
+            label: 'Gate',
+            opsModule: 'GATE',
+            children: [
+              // The console itself is the guard's whole world, so it comes first
+              // and carries the permission a guard actually holds.
+              { label: 'Gate Console', href: '/dashboard/gate', accessModule: 'GATE_CONSOLE' },
+              // No accessModule: answering comes from having been asked, not from a
+              // permission. A committee member with no gate rights still gets asked
+              // about their own visitors.
+              { label: 'Visitor Approvals', href: '/dashboard/gate/approvals' },
+              { label: 'Scan a Pass', href: '/dashboard/gate/scan', accessModule: 'GATE_CONSOLE' },
+              { label: 'Gate Records', href: '/dashboard/gate/log', accessModule: 'GATE_LOGS' },
+              // Issuing is a resident's act, so this carries no permission — a
+              // committee member inviting their own guest is not doing gate work.
+              { label: 'Gate Passes', href: '/dashboard/gate/passes' },
+              { label: 'Resident Vehicles', href: '/dashboard/gate/vehicles', accessModule: 'GATE_CONSOLE' },
+              { label: 'Blocklist', href: '/dashboard/gate/blocklist', accessModule: 'GATE_CONSOLE' },
+              { label: 'Gates', href: '/dashboard/gate/gates', accessModule: 'GATE_CONSOLE' },
+              { label: 'My Preferences', href: '/dashboard/gate/preferences' },
+            ],
+          },
+          {
+            label: 'Staff',
+            opsModule: 'STAFF',
+            accessModule: 'STAFF_VIEW',
+            children: [
+              { label: 'The Roll', href: '/dashboard/staff' },
+              { label: 'Who Covers What', href: '/dashboard/staff/coverage' },
+            ],
+          },
+          {
+            label: 'Complaints',
+            href: '/dashboard/complaints',
+            opsModule: 'COMPLAINTS',
+            // COMPLAINTS_OWN, not COMPLAINTS_MANAGE: a technician who only ever sees
+            // their own queue still needs the link. The page itself asks the server
+            // what to show, so a manager and a plumber land on the same href and
+            // get different lists.
+            accessModule: 'COMPLAINTS_OWN',
+          },
+          {
+            label: 'Complaint Categories',
+            href: '/dashboard/complaints/categories',
+            opsModule: 'COMPLAINTS',
+            accessModule: 'COMPLAINTS_MANAGE',
+          },
+          {
+            label: 'Equipment',
+            href: '/dashboard/assets',
+            // `ASSETS` also names a FINANCE module (fixed assets in the balance
+            // sheet). They are different fields read by different filters, so
+            // there is no collision at runtime — but the two are genuinely
+            // different things and the shared word has confused every reader of
+            // this file so far. See the Fixed Assets entry below.
+            opsModule: 'ASSETS',
+            accessModule: 'COMPLAINTS_MANAGE',
+          },
+          /**
+           * Operations Settings carries NO `opsModule`, and that is
+           * load-bearing rather than an oversight.
+           *
+           * This is where the modules themselves are switched on and off. Gate
+           * it on any of them and an admin who turns the gate off has locked
+           * the only door back in: the screen that could undo it is the screen
+           * that just vanished. Its group carries no `opsModule` either, for
+           * the same reason — a society with every operations module off must
+           * still see Operations, containing exactly this one link.
+           */
+          // Gate + complaints figures over a period. `GET /gate/report` existed
+          // from the start with no screen calling it.
+          { label: 'How Things Went', href: '/dashboard/operations/report', accessModule: 'GATE_LOGS' },
           { label: 'Operations Settings', href: '/dashboard/gate/settings', accessModule: 'OPS_SETTINGS' },
         ],
       },
       {
-        label: 'Staff',
-        icon: <HardHat className="w-5 h-5" />,
-        href: '/dashboard/staff',
-        opsModule: 'STAFF',
-        accessModule: 'STAFF_VIEW',
-      },
-      {
-        label: 'Complaints',
-        icon: <MessageSquareWarning className="w-5 h-5" />,
-        href: '/dashboard/complaints',
-        opsModule: 'COMPLAINTS',
-        // COMPLAINTS_OWN, not COMPLAINTS_MANAGE: a technician who only ever sees
-        // their own queue still needs the link. The page itself asks the server
-        // what to show, so a manager and a plumber land on the same href and
-        // get different lists.
-        accessModule: 'COMPLAINTS_OWN',
-      },
-      {
-        label: 'Equipment',
-        icon: <Wrench className="w-5 h-5" />,
-        href: '/dashboard/assets',
-        opsModule: 'ASSETS',
-        accessModule: 'COMPLAINTS_MANAGE',
+        label: 'Finance',
+        icon: <Landmark className="w-5 h-5" />,
+        children: [
+          {
+            label: 'Day to Day',
+            children: [
+              // The unmarked ones are the core a society cannot bill without —
+              // they are never hidden.
+              { label: 'Overview', href: '/dashboard/finance/overview' },
+              { label: 'Invoices', href: '/dashboard/finance/invoices' },
+              { label: 'Collections', href: '/dashboard/finance/collections' },
+              { label: 'Confirmations', href: '/dashboard/finance/confirmations', badgeKey: 'financePendingConfirmations' },
+              { label: 'Defaulter Notices', href: '/dashboard/finance/notices', financeModule: 'NOTICES' },
+              { label: 'Post-dated Cheques', href: '/dashboard/finance/pdc', financeModule: 'PDC' },
+              { label: 'Refunds', href: '/dashboard/finance/refunds', financeModule: 'REFUNDS' },
+              // Bulk entry is a button ON the expenses page, not a sibling of it —
+              // "record one" and "record twenty" are the same job at two sizes.
+              { label: 'Expenses', href: '/dashboard/finance/expenses', financeModule: 'EXPENSES' },
+              { label: 'Vendors', href: '/dashboard/finance/vendors', financeModule: 'EXPENSES' },
+            ],
+          },
+          {
+            label: 'Reports & Registers',
+            children: [
+              { label: 'Reports', href: '/dashboard/finance/reports' },
+              { label: 'Budget', href: '/dashboard/finance/budget', financeModule: 'BUDGET' },
+              { label: 'Members & Shares', href: '/dashboard/finance/shares', financeModule: 'SHARES' },
+              // The society's own building, lifts and generators as accounting
+              // entries — depreciated, shown on the balance sheet. NOT the same
+              // as Operations → Equipment, which is the maintenance record for
+              // the very same lift. One answers the auditor, the other answers
+              // the resident stuck between floors.
+              { label: 'Fixed Assets', href: '/dashboard/finance/assets', financeModule: 'ASSETS' },
+              { label: 'Fixed Deposits', href: '/dashboard/finance/investments', financeModule: 'INVESTMENTS' },
+            ],
+          },
+          {
+            label: 'Setup',
+            children: [
+              // ONE entry for everything a society says once: its opening position,
+              // its imported data, and the manual voucher for a treasurer who wants
+              // it. This used to be three separate links, and nobody could tell
+              // which of them they were supposed to be in.
+              //
+              // Deliberately NOT gated on a financeModule: it must stay reachable
+              // when every other finance screen is locked, because it is where a
+              // society lands when it cannot record anything yet.
+              { label: 'Setup & Opening Balances', href: '/dashboard/finance/setup' },
+              { label: 'Charge Heads', href: '/dashboard/finance/charge-heads' },
+              { label: 'Funds', href: '/dashboard/finance/funds', financeModule: 'FUNDS' },
+              { label: 'Chart of Accounts', href: '/dashboard/finance/chart-of-accounts', financeModule: 'ACCOUNTING' },
+              { label: 'Vouchers & Journal', href: '/dashboard/finance/journal', financeModule: 'ACCOUNTING' },
+              { label: 'Bank Reconciliation', href: '/dashboard/finance/bank-reconciliation', financeModule: 'BANKING' },
+              { label: 'Settlement', href: '/dashboard/finance/settlement' },
+              { label: 'Settings', href: '/dashboard/finance/settings' },
+            ],
+          },
+        ],
       },
       {
         label: 'Resismart Housing',
@@ -320,54 +413,22 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         ],
       },
       {
-        label: 'Billing & Subscription',
-        icon: <DollarSign className="w-5 h-5" />,
-        href: '/dashboard/billing'
+        label: 'Society',
+        icon: <Landmark className="w-5 h-5" />,
+        children: [
+          { label: 'Committee', href: '/dashboard/committee', accessModule: 'COMMITTEE_MANAGE' },
+          { label: 'Who Can Do What', href: '/dashboard/access-roles', accessModule: 'ACCESS_MANAGE' },
+          // No accessModule: the page decides what each visitor may do, and a
+          // displaced admin has to be able to reach it in order to object.
+          { label: 'Admin Handover', href: '/dashboard/settings/admin-transfer' },
+          { label: 'Billing & Subscription', href: '/dashboard/billing' },
+        ],
       },
       {
-        label: 'Finance Management',
-        icon: <Landmark className="w-5 h-5" />,
-        // Ordered day-to-day → output → setup. The renderer has no section-label or
-        // divider support, so the grouping is expressed by order alone.
-        children: [
-          // Day-to-day. The unmarked ones are the core a society cannot bill
-          // without — they are never hidden.
-          { label: 'Overview', href: '/dashboard/finance/overview' },
-          { label: 'Invoices', href: '/dashboard/finance/invoices' },
-          { label: 'Collections', href: '/dashboard/finance/collections' },
-          { label: 'Defaulter Notices', href: '/dashboard/finance/notices', financeModule: 'NOTICES' },
-          { label: 'Post-dated Cheques', href: '/dashboard/finance/pdc', financeModule: 'PDC' },
-          { label: 'Confirmations', href: '/dashboard/finance/confirmations', badgeKey: 'financePendingConfirmations' },
-          { label: 'Refunds', href: '/dashboard/finance/refunds', financeModule: 'REFUNDS' },
-          // Bulk entry is a button ON the expenses page, not a sibling of it —
-          // "record one" and "record twenty" are the same job at two sizes.
-          { label: 'Expenses', href: '/dashboard/finance/expenses', financeModule: 'EXPENSES' },
-          { label: 'Vendors', href: '/dashboard/finance/vendors', financeModule: 'EXPENSES' },
-          { label: 'Fixed Assets', href: '/dashboard/finance/assets', financeModule: 'ASSETS' },
-          { label: 'Fixed Deposits', href: '/dashboard/finance/investments', financeModule: 'INVESTMENTS' },
-          // Output
-          { label: 'Reports', href: '/dashboard/finance/reports' },
-          { label: 'Budget', href: '/dashboard/finance/budget', financeModule: 'BUDGET' },
-          // Setup
-          { label: 'Members & Shares', href: '/dashboard/finance/shares', financeModule: 'SHARES' },
-          { label: 'Charge Heads', href: '/dashboard/finance/charge-heads' },
-          { label: 'Funds', href: '/dashboard/finance/funds', financeModule: 'FUNDS' },
-          // ONE entry for everything a society says once: its opening position,
-          // its imported data, and the manual voucher for a treasurer who wants
-          // it. This used to be three separate links, and nobody could tell
-          // which of them they were supposed to be in.
-          //
-          // Deliberately NOT gated on a financeModule: it must stay reachable
-          // when every other finance screen is locked, because it is where a
-          // society lands when it cannot record anything yet.
-          { label: 'Setup & Opening Balances', href: '/dashboard/finance/setup' },
-          { label: 'Chart of Accounts', href: '/dashboard/finance/chart-of-accounts', financeModule: 'ACCOUNTING' },
-          { label: 'Vouchers & Journal', href: '/dashboard/finance/journal', financeModule: 'ACCOUNTING' },
-          { label: 'Bank Reconciliation', href: '/dashboard/finance/bank-reconciliation', financeModule: 'BANKING' },
-          { label: 'Settlement', href: '/dashboard/finance/settlement' },
-          { label: 'Settings', href: '/dashboard/finance/settings' }
-        ]
-      }
+        label: 'Notifications',
+        icon: <Bell className="w-5 h-5" />,
+        href: '/dashboard/notifications',
+      },
     ];
   }
 
@@ -381,7 +442,7 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         href: '/dashboard/my-flat'
       },
       {
-        label: 'Approvals',
+        label: 'Requests',
         icon: <ShieldCheck className="w-5 h-5" />,
         href: '/dashboard/approvals'
       },
@@ -408,7 +469,8 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         icon: <DoorOpen className="w-5 h-5" />,
         opsModule: 'GATE',
         children: [
-          { label: 'Approvals', href: '/dashboard/gate/approvals' },
+          // Worded as a resident would say them, not as the module names them.
+          { label: 'Someone at the Gate', href: '/dashboard/gate/approvals' },
           { label: 'Invite Someone', href: '/dashboard/gate/passes' },
           { label: 'Who Came', href: '/dashboard/gate/log' },
           { label: 'My Preferences', href: '/dashboard/gate/preferences' },
@@ -418,6 +480,11 @@ export const getSidebarLinks = (role: string): SidebarLink[] => {
         label: 'My Bills',
         icon: <DollarSign className="w-5 h-5" />,
         href: '/dashboard/finance/my-bills'
+      },
+      {
+        label: 'Notifications',
+        icon: <Bell className="w-5 h-5" />,
+        href: '/dashboard/notifications',
       }
     ];
   }

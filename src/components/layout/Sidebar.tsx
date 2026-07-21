@@ -157,6 +157,46 @@ export function Sidebar({ mobileOpen, setMobileOpen }: SidebarProps) {
     ? filterLinksByAccess(opsFiltered, accessPermissions)
     : opsFiltered;
 
+  /**
+   * The groups that lead to the page you are actually on.
+   *
+   * Without this, arriving at a URL directly — a bookmark, a link in a
+   * notification, a browser reload, anything that is not a click in the menu
+   * itself — drew every group collapsed. The current page was highlighted
+   * inside a box that was shut, so the sidebar looked as though nothing was
+   * selected at all. That was tolerable when Finance was a flat list; with the
+   * menu now three deep it would be the first thing anybody noticed.
+   *
+   * Returns the labels from the outermost group inwards, e.g.
+   * ['Finance', 'Setup'] for /dashboard/finance/charge-heads.
+   */
+  const trailTo = useCallback((items: SidebarLink[], target: string): string[] | null => {
+    for (const item of items) {
+      if (item.href && new URL(item.href, 'http://x').pathname === target) return [];
+      if (item.children) {
+        const deeper = trailTo(item.children, target);
+        if (deeper) return [item.label, ...deeper];
+      }
+    }
+    return null;
+  }, []);
+
+  const activeTrail = trailTo(links, pathname) || [];
+  // Joined rather than passed as an array: a fresh array every render would
+  // re-run the effect forever, and the string is the whole of what matters.
+  const trailKey = activeTrail.join('>');
+
+  useEffect(() => {
+    if (!trailKey) return;
+    // Merged into whatever is already open rather than replacing it, so a group
+    // the reader opened by hand does not snap shut when they navigate.
+    setExpandedMenus(prev => {
+      const next = { ...prev };
+      trailKey.split('>').forEach((label, depth) => { next[depth] = label; });
+      return next;
+    });
+  }, [trailKey]);
+
   const badgeCounts: Record<string, number> = { financePendingConfirmations: pendingConfirmations };
 
   // A collapsed group hides its children, so roll descendant counts up to the parent —

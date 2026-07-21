@@ -6,8 +6,10 @@ import {
   Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Select, MenuItem, FormControl, InputLabel, Chip,
 } from '@mui/material';
-import { Plus, Ticket, Share2, Ban, TriangleAlert, Copy } from 'lucide-react';
+import { Plus, Ticket, Share2, Ban, TriangleAlert, Copy, Download } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
+import { DataTable, ColumnDef } from '@/components/common/DataTable';
+import PageHeader from '@/components/common/PageHeader';
 import QRCode from 'qrcode';
 
 /**
@@ -96,20 +98,59 @@ export default function GatePassesPage() {
     + `Valid until ${new Date(p.validTo).toLocaleString('en-IN')}\n\n`
     + `Show the QR or read out the code at the gate.`;
 
+  /** The QR as a real PNG file, so it can be sent rather than only looked at. */
+  const qrFile = async (p: Pass): Promise<File | null> => {
+    try {
+      const dataUrl = qr || await QRCode.toDataURL(p.qrPayload, { width: 640, margin: 2, errorCorrectionLevel: 'M' });
+      const blob = await (await fetch(dataUrl)).blob();
+      return new File([blob], `gate-pass-${p.code}.png`, { type: 'image/png' });
+    } catch { return null; }
+  };
+
+  /**
+   * Send the invitation — with the QR image, not only the code.
+   *
+   * Sharing used to send text alone, which meant the guest received a six-digit
+   * number and the QR they were told to show existed only on the resident's own
+   * screen. At the gate they then had to read the code aloud every time, and
+   * the scanner — the whole reason the pass has crypto on it — was never used.
+   *
+   * Web Share Level 2 carries files, but not everywhere: `canShare` is the only
+   * honest test, and where it says no the image is downloaded so it can still
+   * be attached to WhatsApp by hand.
+   */
   const doShare = async (p: Pass) => {
     const text = shareText(p);
+    const file = await qrFile(p);
+
     // The Web Share sheet is the right thing on a phone and simply does not
     // exist on most desktops — the clipboard is not a lesser fallback, it is
     // what a desktop user wanted anyway.
+    if (file && navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ title: 'Gate pass', text, files: [file] }); return; }
+      catch { /* cancelled, or the sheet refused the file — fall through */ }
+    }
     if (navigator.share) {
-      try { await navigator.share({ title: 'Gate pass', text }); return; } catch { /* cancelled */ }
+      try { await navigator.share({ title: 'Gate pass', text }); }
+      catch { /* cancelled */ }
+      // Even when only the text went, hand over the image so it can be attached.
+      if (file) saveQr(file);
+      return;
     }
     try {
       await navigator.clipboard.writeText(text);
-      showToast('Copied — paste it into WhatsApp', 'success');
+      if (file) saveQr(file);
+      showToast('Copied, and the QR saved — paste the text and attach the image', 'success');
     } catch {
       showToast('Could not copy. Long-press the code to select it.', 'error');
     }
+  };
+
+  const saveQr = (file: File) => {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url; a.download = file.name; a.click();
+    URL.revokeObjectURL(url);
   };
 
   const cancel = async (p: Pass) => {
@@ -122,84 +163,120 @@ export default function GatePassesPage() {
     }
   };
 
+  const passColumns: ColumnDef<Pass>[] = [
+    {
+      id: 'visitor', label: 'Who is coming', alwaysVisible: true,
+      sortValue: p => p.visitorName,
+      exportValue: p => p.visitorName,
+      render: p => (
+        <div className="min-w-0">
+          <p className="font-bold text-slate-800 truncate">{p.visitorName}</p>
+          <p className="text-[11px] text-slate-400">
+            {CATEGORIES.find(c => c.v === p.category)?.l || p.category}
+            {p.flatLabel && ` · ${p.flatLabel}`}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: 'code', label: 'Code', alwaysVisible: true,
+      sortValue: p => p.code,
+      exportValue: p => p.code,
+      render: p => <span className="font-mono font-black text-slate-800 tracking-widest text-sm">{p.code}</span>,
+    },
+    {
+      id: 'validTo', label: 'Good until',
+      sortValue: p => p.validTo,
+      exportValue: p => new Date(p.validTo).toLocaleString('en-IN'),
+      render: p => {
+        const gone = new Date(p.validTo) < new Date();
+        return (
+          <span className={`text-[11px] font-semibold ${gone ? 'text-slate-400' : 'text-slate-600'}`}>
+            {new Date(p.validTo).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          </span>
+        );
+      },
+    },
+    {
+      id: 'uses', label: 'Used', align: 'center',
+      sortValue: p => p.usedCount,
+      exportValue: p => `${p.usedCount}/${p.maxUses}`,
+      render: p => (
+        <span className="text-sm text-slate-600 tabular-nums">
+          {p.usedCount}{p.maxUses > 1 && <span className="text-slate-400">/{p.maxUses}</span>}
+        </span>
+      ),
+    },
+    {
+      id: 'status', label: 'Status',
+      sortValue: p => p.status,
+      exportValue: p => p.status.toLowerCase(),
+      render: p => (
+        <div className="min-w-0">
+          <Chip size="small" label={p.status.toLowerCase()}
+            className={`!font-bold !text-[10px] ${
+              p.status === 'ACTIVE' ? '!bg-emerald-50 !text-emerald-700' : '!bg-slate-100 !text-slate-600'}`} />
+          {p.overUsedAt && (
+            <p className="text-[11px] text-amber-700 mt-0.5 flex items-start gap-1">
+              <TriangleAlert className="w-3 h-3 shrink-0 mt-px" />{p.overUseNote}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'act', label: '', align: 'right', alwaysVisible: true,
+      render: p => p.status === 'ACTIVE' ? (
+        <div className="flex items-center justify-end gap-1">
+          <Button size="small" variant="outlined" startIcon={<Share2 className="w-3.5 h-3.5" />}
+            onClick={() => openShare(p)} className="!rounded-xl !normal-case !font-bold !text-xs">
+            Share
+          </Button>
+          <Button size="small" color="error" startIcon={<Ban className="w-3.5 h-3.5" />}
+            onClick={() => cancel(p)} className="!rounded-xl !normal-case !font-bold !text-xs">
+            Cancel
+          </Button>
+        </div>
+      ) : null,
+    },
+  ];
+
   if (loading) return <div className="flex justify-center py-24"><CircularProgress /></div>;
 
   return (
     <div className="space-y-4 pb-24">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-black text-slate-900">Gate passes</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            Invite someone before they arrive. The guard scans or types the code — nobody has to call you.
-          </p>
-        </div>
-        <Button variant="contained" startIcon={<Plus className="w-4 h-4" />} onClick={() => setOpen(true)}
-          disabled={!flatIds.length} className="!rounded-xl !normal-case !font-bold shrink-0">
-          Invite someone
-        </Button>
-      </div>
+      <PageHeader
+        breadcrumb="Operations · Gate"
+        title="Gate passes"
+        icon={<Ticket className="w-4.5 h-4.5" />}
+        subtitle="Invite someone before they arrive. The guard scans or types the code — nobody has to call you."
+        actions={
+          <Button variant="contained" startIcon={<Plus className="w-4 h-4" />} onClick={() => setOpen(true)}
+            disabled={!flatIds.length} className="!rounded-xl !normal-case !font-bold">
+            Invite someone
+          </Button>
+        }
+      />
 
-      <Button size="small" onClick={() => setShowAll(v => !v)} className="!normal-case !font-bold !text-xs">
-        {showAll ? 'Show only live passes' : 'Show used and cancelled too'}
-      </Button>
-
-      {rows.length === 0 ? (
-        <Paper elevation={0} className="rounded-2xl border border-slate-200/70 p-10 text-center">
-          <Ticket className="w-8 h-8 text-slate-300 mx-auto" />
-          <p className="mt-3 font-bold text-slate-700">No passes yet</p>
-          <p className="text-sm text-slate-500 mt-1">
-            {flatIds.length
-              ? 'Invite a guest and they will be let in without a phone call to you.'
-              : 'Gate passes belong to a home. Ask the society office to link your flat.'}
-          </p>
-        </Paper>
-      ) : (
-        <div className="grid gap-2">
-          {rows.map(p => (
-            <Paper key={p._id} elevation={0} className="rounded-2xl border border-slate-200/70 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-bold text-slate-800 truncate">{p.visitorName}</p>
-                  <p className="text-xs text-slate-500">
-                    {CATEGORIES.find(c => c.v === p.category)?.l || p.category}
-                    {p.flatLabel && ` · ${p.flatLabel}`}
-                    {p.maxUses > 1 && ` · ${p.usedCount}/${p.maxUses} used`}
-                  </p>
-                  <p className="text-[11px] text-slate-400">
-                    until {new Date(p.validTo).toLocaleString('en-IN')}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <Chip size="small" label={p.status.toLowerCase()}
-                    className={`!font-bold !text-[11px] ${
-                      p.status === 'ACTIVE' ? '!bg-emerald-50 !text-emerald-700' : '!bg-slate-100 !text-slate-600'}`} />
-                  <span className="font-mono font-black text-slate-800 tracking-widest text-sm">{p.code}</span>
-                </div>
-              </div>
-
-              {p.overUsedAt && (
-                <div className="flex items-start gap-2 mt-2 p-2 rounded-xl bg-amber-50 border border-amber-200">
-                  <TriangleAlert className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                  <p className="text-[11px] text-amber-800">{p.overUseNote}</p>
-                </div>
-              )}
-
-              {p.status === 'ACTIVE' && (
-                <div className="flex gap-2 mt-3">
-                  <Button size="small" variant="outlined" startIcon={<Share2 className="w-3.5 h-3.5" />}
-                    onClick={() => openShare(p)} className="!rounded-xl !normal-case !font-bold !text-xs">
-                    Share
-                  </Button>
-                  <Button size="small" variant="outlined" color="error" startIcon={<Ban className="w-3.5 h-3.5" />}
-                    onClick={() => cancel(p)} className="!rounded-xl !normal-case !font-bold !text-xs">
-                    Cancel
-                  </Button>
-                </div>
-              )}
-            </Paper>
-          ))}
-        </div>
-      )}
+      <DataTable
+        columns={passColumns}
+        data={rows}
+        keyExtractor={p => p._id}
+        exportFileName="gate-passes"
+        columnToggle
+        emptyTitle="No passes yet"
+        emptyText={flatIds.length
+          ? 'Invite a guest and they will be let in without a phone call to you.'
+          : 'Gate passes belong to a home. Ask the society office to link your flat.'}
+        emptyIcon={<Ticket className="w-6 h-6" />}
+        toolbar={
+          <Button size="small" variant={showAll ? 'contained' : 'outlined'}
+            onClick={() => setShowAll(v => !v)}
+            className="!rounded-xl !normal-case !font-bold !text-xs">
+            {showAll ? 'Showing used and cancelled too' : 'Show used and cancelled too'}
+          </Button>
+        }
+      />
 
       {/* ------------------------------------------------------------ create */}
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs"
@@ -259,11 +336,15 @@ export default function GatePassesPage() {
             Valid until {share && new Date(share.validTo).toLocaleString('en-IN')}
           </p>
           <p className="text-[11px] text-slate-400">
-            The code works even where there is no signal at the gate.
+            Sharing sends the QR image along with the code. The code works even where
+            there is no signal at the gate.
           </p>
         </DialogContent>
         <DialogActions className="!px-6 !py-3">
           <Button onClick={() => setShare(null)} className="!normal-case !font-bold">Close</Button>
+          <Button startIcon={<Download className="w-4 h-4" />}
+            onClick={async () => { if (!share) return; const f = await qrFile(share); if (f) saveQr(f); }}
+            className="!rounded-xl !normal-case !font-bold !text-slate-500">Save QR</Button>
           <Button variant="contained" startIcon={<Copy className="w-4 h-4" />}
             onClick={() => share && doShare(share)}
             className="!rounded-xl !normal-case !font-bold">Share</Button>

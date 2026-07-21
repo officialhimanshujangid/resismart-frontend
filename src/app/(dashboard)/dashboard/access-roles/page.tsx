@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { Plus, Shield, Trash2, Pencil, Users, Lock, Building2, Info } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
+import { DataTable, ColumnDef } from '@/components/common/DataTable';
 
 /**
  * Who can do what, inside this society.
@@ -147,6 +148,81 @@ export default function AccessRolesPage() {
     [roles],
   );
 
+  const roleColumns: ColumnDef<typeof roles[number]>[] = [
+    {
+      id: 'name', label: 'Role', alwaysVisible: true,
+      sortValue: r => r.name,
+      exportValue: r => r.name,
+      render: r => (
+        <div className="min-w-0 max-w-[18rem]">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className={`font-bold ${r.isActive ? 'text-slate-800' : 'text-slate-400'}`}>{r.name}</p>
+            {r.isSystem && <Chip size="small" label="Standard" className="!bg-slate-100 !text-slate-600 !font-bold !text-[10px] !h-4" />}
+            {!r.isActive && <Chip size="small" label="Switched off" className="!bg-amber-100 !text-amber-700 !font-bold !text-[10px] !h-4" />}
+          </div>
+          {r.description && <p className="text-[11px] text-slate-400 mt-0.5">{r.description}</p>}
+        </div>
+      ),
+    },
+    {
+      id: 'appliesTo', label: 'For',
+      sortValue: r => r.appliesTo,
+      exportValue: r => r.appliesTo,
+      render: r => (
+        <span className="text-sm text-slate-600">
+          {r.appliesTo === 'BOTH' ? 'Committee & staff' : r.appliesTo === 'COMMITTEE' ? 'Committee' : 'Staff'}
+        </span>
+      ),
+    },
+    {
+      id: 'permissions', label: 'Can reach',
+      // Sorted on the COUNT, so "which role is the most powerful" — the question
+      // a committee actually has when auditing who can do what — is one click.
+      sortValue: r => r.permissions.filter(p => p.level !== 'NONE').length,
+      exportValue: r => r.permissions.filter(p => p.level !== 'NONE')
+        .map(p => `${catalog.find(c => c.key === p.module)?.label || p.module}:${p.level}`).join('; '),
+      render: r => {
+        const granted = r.permissions.filter(p => p.level !== 'NONE');
+        if (!granted.length) return <span className="text-xs text-slate-400 italic">nothing yet</span>;
+        return (
+          <div className="flex flex-wrap gap-1 max-w-[24rem]">
+            {granted.map(p => (
+              <Chip key={p.module} size="small"
+                label={`${catalog.find(c => c.key === p.module)?.label || p.module} · ${p.level === 'FULL' ? 'change' : 'view'}`}
+                className={`!text-[10px] !font-semibold !h-5 ${p.level === 'FULL' ? '!bg-indigo-50 !text-indigo-700' : '!bg-slate-100 !text-slate-600'}`} />
+            ))}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'scope', label: 'Where',
+      sortValue: r => (r.scope.allBlocks ? '' : 'limited'),
+      exportValue: r => r.scope.allBlocks ? 'whole society'
+        : r.scope.blockIds.map(id => blocks.find(b => b._id === id)?.name).filter(Boolean).join(', '),
+      render: r => r.scope.allBlocks
+        ? <span className="text-sm text-slate-500">Whole society</span>
+        : <span className="text-[11px] text-amber-700 flex items-center gap-1">
+            <Building2 className="w-3.5 h-3.5 shrink-0" />
+            {r.scope.blockIds.map(id => blocks.find(b => b._id === id)?.name).filter(Boolean).join(', ')}
+          </span>,
+    },
+    {
+      id: 'act', label: '', align: 'right', alwaysVisible: true,
+      render: r => (
+        <div className="flex items-center justify-end gap-1">
+          <Button size="small" startIcon={<Pencil className="w-3.5 h-3.5" />}
+            onClick={() => setEditing(JSON.parse(JSON.stringify(r)))}
+            className="!normal-case !font-bold !text-xs">Edit</Button>
+          {!r.isSystem && (
+            <Button size="small" color="error" onClick={() => remove(r)}
+              className="!min-w-0 !px-2"><Trash2 className="w-3.5 h-3.5" /></Button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   if (loading) return <div className="flex justify-center py-24"><CircularProgress size={28} /></div>;
 
   return (
@@ -180,55 +256,16 @@ export default function AccessRolesPage() {
 
       {/* ----------------------------------------------------------- roles */}
       {tab === 'roles' && (
-        <div className="grid gap-3">
-          {roles.map(r => {
-            const granted = r.permissions.filter(p => p.level !== 'NONE');
-            return (
-              <Paper key={r._id} elevation={0}
-                className={`rounded-2xl border p-4 ${r.isActive ? 'border-slate-200/70' : 'border-slate-200/70 opacity-60'}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-bold text-slate-800">{r.name}</p>
-                      {r.isSystem && <Chip size="small" label="Standard" className="!bg-slate-100 !text-slate-600 !font-bold !text-[10px]" />}
-                      {!r.isActive && <Chip size="small" label="Switched off" className="!bg-amber-100 !text-amber-700 !font-bold !text-[10px]" />}
-                      <Chip size="small" label={r.appliesTo === 'BOTH' ? 'Committee & staff' : r.appliesTo === 'COMMITTEE' ? 'Committee' : 'Staff'}
-                        className="!bg-slate-100 !text-slate-500 !font-semibold !text-[10px]" />
-                    </div>
-                    {r.description && <p className="text-xs text-slate-500 mt-1">{r.description}</p>}
-
-                    <div className="flex flex-wrap gap-1.5 mt-2.5">
-                      {granted.length === 0
-                        ? <span className="text-xs text-slate-400 italic">No access to anything yet</span>
-                        : granted.map(p => (
-                          <Chip key={p.module} size="small"
-                            label={`${catalog.find(c => c.key === p.module)?.label || p.module} · ${p.level === 'FULL' ? 'change' : 'view'}`}
-                            className={`!text-[10px] !font-semibold ${p.level === 'FULL' ? '!bg-indigo-50 !text-indigo-700' : '!bg-slate-100 !text-slate-600'}`} />
-                        ))}
-                    </div>
-
-                    {!r.scope.allBlocks && (
-                      <div className="flex items-center gap-1.5 mt-2 text-xs text-amber-700">
-                        <Building2 className="w-3.5 h-3.5" />
-                        Limited to {r.scope.blockIds.map(id => blocks.find(b => b._id === id)?.name).filter(Boolean).join(', ')}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-1 shrink-0">
-                    <Button size="small" startIcon={<Pencil className="w-3.5 h-3.5" />}
-                      onClick={() => setEditing(JSON.parse(JSON.stringify(r)))}
-                      className="!normal-case !font-bold !text-xs">Edit</Button>
-                    {!r.isSystem && (
-                      <Button size="small" color="error" onClick={() => remove(r)}
-                        className="!min-w-0 !px-2"><Trash2 className="w-3.5 h-3.5" /></Button>
-                    )}
-                  </div>
-                </div>
-              </Paper>
-            );
-          })}
-        </div>
+        <DataTable
+          columns={roleColumns}
+          data={roles}
+          keyExtractor={r => r._id}
+          exportFileName="access-roles"
+          columnToggle
+          emptyTitle="No roles yet"
+          emptyText="A role is a bundle of permissions you hand to a committee member or a staff member."
+          emptyIcon={<Shield className="w-6 h-6" />}
+        />
       )}
 
       {/* --------------------------------------------------------- people */}

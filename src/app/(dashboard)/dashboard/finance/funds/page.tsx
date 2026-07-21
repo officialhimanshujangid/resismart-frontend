@@ -8,6 +8,7 @@ import {
 } from '@mui/material';
 import { Plus, Landmark, PiggyBank, Briefcase, TrendingUp, X, Info, Pencil } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
+import { DataTable, ColumnDef } from '@/components/common/DataTable';
 
 interface Fund {
   _id: string; name: string; category: string; description?: string;
@@ -90,6 +91,127 @@ export default function FundsPage() {
   const total = funds.reduce((s, f) => s + (f.currentBalancePaise || 0), 0);
   const icon = (c: string) => c === 'CORPUS' ? <Briefcase className="w-5 h-5 text-indigo-500" /> : c === 'SINKING' ? <PiggyBank className="w-5 h-5 text-emerald-500" /> : <Landmark className="w-5 h-5 text-blue-500" />;
 
+  const money = (p?: number, tone = 'text-slate-700') =>
+    <span className={`text-sm font-semibold font-mono tabular-nums ${tone}`}>{rupees(p)}</span>;
+
+  const fundColumns: ColumnDef<Fund>[] = [
+    {
+      id: 'name', label: 'Fund', alwaysVisible: true,
+      sortValue: f => f.name,
+      exportValue: f => f.name,
+      render: f => (
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="shrink-0">{icon(f.category)}</div>
+          <div className="min-w-0">
+            <p className="font-bold text-slate-800 truncate">{f.name}</p>
+            <p className="text-[11px] text-slate-400">
+              {CATEGORIES.find(c => c.v === f.category)?.l || f.category}
+              {f.ledgerAccountCode && ` · a/c ${f.ledgerAccountCode}`}
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'balance', label: 'Balance', align: 'right', alwaysVisible: true,
+      sortValue: f => f.currentBalancePaise,
+      exportValue: f => (f.currentBalancePaise || 0) / 100,
+      render: f => (
+        <div>
+          {money(f.currentBalancePaise, f.currentBalancePaise < 0 ? 'text-red-600' : 'text-slate-800')}
+          {f.currentBalancePaise < 0 && (
+            <p className="text-[10px] text-red-600 font-semibold">overspent</p>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'target', label: 'Target', align: 'right',
+      sortValue: f => f.targetAmountPaise || 0,
+      exportValue: f => (f.targetAmountPaise || 0) / 100,
+      render: f => f.targetAmountPaise
+        ? money(f.targetAmountPaise, 'text-slate-500')
+        : <span className="text-[11px] text-slate-300">none</span>,
+    },
+    {
+      id: 'progress', label: 'Raised',
+      // Against what has been DEMANDED, not the balance. A fund that raised its
+      // target and then paid the contractor has a small balance and is still
+      // fully raised — reading the balance instead would have the society chase
+      // members who owe nothing.
+      sortValue: f => (f.targetAmountPaise ? raisedPct(f) : -1),
+      exportValue: f => (f.targetAmountPaise ? `${raisedPct(f)}%` : ''),
+      render: f => {
+        if (!f.targetAmountPaise) return <span className="text-[11px] text-slate-300">—</span>;
+        const over = (f.overRaisedPaise || 0) > 0;
+        return (
+          <div className="min-w-[7rem]">
+            <div className="flex justify-between text-[11px] mb-1">
+              <span className={`font-bold ${over ? 'text-red-600' : 'text-slate-600'}`}>{raisedPct(f)}%</span>
+              {(f.remainingToRaisePaise || 0) > 0 && (
+                <span className="text-amber-700">{rupees(f.remainingToRaisePaise)} to go</span>
+              )}
+            </div>
+            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full ${over ? 'bg-red-500' : 'bg-blue-500'}`}
+                style={{ width: `${Math.min(100, raisedPct(f))}%` }} />
+            </div>
+            {over && (
+              <p className="text-[10px] text-red-700 mt-1">{rupees(f.overRaisedPaise)} over-billed</p>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'billed', label: 'Billed', align: 'right', defaultHidden: true,
+      sortValue: f => f.raisedPaise || 0,
+      exportValue: f => (f.raisedPaise || 0) / 100,
+      render: f => money(f.raisedPaise),
+    },
+    {
+      id: 'received', label: 'Received', align: 'right',
+      sortValue: f => f.collectedPaise || 0,
+      exportValue: f => (f.collectedPaise || 0) / 100,
+      render: f => (
+        <div>
+          {money(f.collectedPaise, 'text-emerald-700')}
+          {(f.raisedPaise || 0) > (f.collectedPaise || 0) && (
+            <p className="text-[10px] text-slate-400">
+              {rupees((f.raisedPaise || 0) - (f.collectedPaise || 0))} unpaid
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'spent', label: 'Spent', align: 'right',
+      sortValue: f => f.spentPaise || 0,
+      exportValue: f => (f.spentPaise || 0) / 100,
+      render: f => money(f.spentPaise),
+    },
+    {
+      id: 'fedby', label: 'Collected by',
+      exportValue: f => feedersFor(f._id).map(h => h.name).join('; '),
+      render: f => {
+        const heads = feedersFor(f._id);
+        return heads.length
+          ? <span className="text-[11px] text-emerald-700 flex items-start gap-1">
+              <TrendingUp className="w-3 h-3 mt-px shrink-0" />{heads.map(h => h.name).join(', ')}
+            </span>
+          : <span className="text-[11px] text-amber-600 font-semibold">nothing feeds it</span>;
+      },
+    },
+    {
+      id: 'act', label: '', align: 'right', alwaysVisible: true,
+      render: f => (
+        <IconButton size="small" onClick={() => openEdit(f)} title="Edit fund">
+          <Pencil className="w-4 h-4 text-slate-400" />
+        </IconButton>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -115,97 +237,31 @@ export default function FundsPage() {
         <div className="p-3 bg-white/20 rounded-full"><Landmark className="w-6 h-6" /></div>
       </Paper>
 
-      {loading ? <div className="flex justify-center py-16"><CircularProgress size={30} /></div> : funds.length === 0 ? (
-        <div className="text-center py-16 text-slate-400 border-2 border-dashed rounded-2xl bg-slate-50/50">
-          <PiggyBank className="w-12 h-12 mx-auto text-slate-300 mb-3" /><p className="font-semibold">No funds yet.</p>
-          <p className="text-sm mt-1">Create a Corpus or Sinking fund to start tracking reserves.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {funds.map(f => (
-            <Paper key={f._id} elevation={0} className="rounded-2xl border border-slate-200/60 overflow-hidden">
-              <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-start">
-                <div>
-                  <p className="font-bold text-slate-800">{f.name}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{f.category}{f.ledgerAccountCode ? ` · ledger a/c ${f.ledgerAccountCode}` : ''}</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <IconButton size="small" onClick={() => openEdit(f)} title="Edit fund"><Pencil className="w-4 h-4 text-slate-400" /></IconButton>
-                  {icon(f.category)}
-                </div>
-              </div>
-              <div className="p-4 space-y-3">
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">Current Balance</p>
-                  <p className={`text-2xl font-black ${f.currentBalancePaise < 0 ? 'text-red-600' : 'text-slate-800'}`}>{rupees(f.currentBalancePaise)}</p>
-                </div>
-                {f.currentBalancePaise < 0 && (
-                  <div className="text-[11px] text-red-600 flex items-start gap-1">
-                    <Info className="w-3 h-3 mt-0.5 shrink-0" />
-                    <span>Overspent — more has been drawn from this fund than it holds.</span>
-                  </div>
-                )}
-                {!!f.targetAmountPaise && f.targetAmountPaise > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-500">Target: {rupees(f.targetAmountPaise)}</span>
-                      <span className={`font-bold ${(f.overRaisedPaise || 0) > 0 ? 'text-red-600' : 'text-slate-700'}`}>{raisedPct(f)}% raised</span>
-                    </div>
-                    {/* The bar can now exceed its track, because a fund billed past
-                        its target should look wrong at a glance. */}
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${(f.overRaisedPaise || 0) > 0 ? 'bg-red-500' : 'bg-blue-500'}`}
-                        style={{ width: `${Math.min(100, raisedPct(f))}%` }}
-                      />
-                    </div>
+      <DataTable
+        columns={fundColumns}
+        data={funds}
+        loading={loading}
+        keyExtractor={f => f._id}
+        exportFileName="funds"
+        columnToggle
+        emptyTitle="No funds yet"
+        emptyText="Create a Corpus or Sinking fund to start tracking reserves."
+        emptyIcon={<PiggyBank className="w-6 h-6" />}
+      />
 
-                    <div className="grid grid-cols-3 gap-2 text-center pt-1">
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Billed</p>
-                        <p className="text-xs font-bold text-slate-700 font-mono">{rupees(f.raisedPaise)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Received</p>
-                        <p className="text-xs font-bold text-emerald-700 font-mono">{rupees(f.collectedPaise)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Spent</p>
-                        <p className="text-xs font-bold text-slate-700 font-mono">{rupees(f.spentPaise)}</p>
-                      </div>
-                    </div>
-
-                    {(f.overRaisedPaise || 0) > 0 && (
-                      <div className="text-[11px] text-red-700 bg-red-50 border border-red-100 rounded-lg px-2 py-1.5 flex items-start gap-1">
-                        <Info className="w-3 h-3 mt-0.5 shrink-0" />
-                        <span>{rupees(f.overRaisedPaise)} more has been billed than this fund needs.</span>
-                      </div>
-                    )}
-                    {(f.remainingToRaisePaise || 0) > 0 && (
-                      <p className="text-[11px] text-amber-700">{rupees(f.remainingToRaisePaise)} still to be billed to reach the target.</p>
-                    )}
-                    {(f.raisedPaise || 0) > (f.collectedPaise || 0) && (
-                      <p className="text-[11px] text-slate-400">
-                        {rupees((f.raisedPaise || 0) - (f.collectedPaise || 0))} billed but not yet received.
-                      </p>
-                    )}
-                  </div>
-                )}
-                {/* Name the heads that feed this fund, so an empty fund explains itself. */}
-                {feedersFor(f._id).length > 0 ? (
-                  <div className="text-[11px] text-emerald-700 flex items-start gap-1">
-                    <TrendingUp className="w-3 h-3 mt-0.5 shrink-0" />
-                    <span>Collected by: {feedersFor(f._id).map(h => h.name).join(', ')}</span>
-                  </div>
-                ) : (
-                  <div className="text-[11px] text-amber-600 flex items-start gap-1">
-                    <Info className="w-3 h-3 mt-0.5 shrink-0" />
-                    <span>No charge head collects into this fund yet — it will stay at ₹0. Set one up in Charge Heads.</span>
-                  </div>
-                )}
-              </div>
-            </Paper>
-          ))}
+      {/* The funds that nothing feeds. Said once, above the table, rather than
+          repeated inside every row — an empty fund reads as a mistake, and the
+          reason (no charge head points at it) belongs where it can be acted on. */}
+      {!loading && funds.some(f => feedersFor(f._id).length === 0) && (
+        <div className="rounded-xl bg-amber-50 border border-amber-200/70 p-3 flex items-start gap-2">
+          <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-900 leading-relaxed">
+            <strong>{funds.filter(f => feedersFor(f._id).length === 0).map(f => f.name).join(', ')}</strong>{' '}
+            {funds.filter(f => feedersFor(f._id).length === 0).length === 1 ? 'has' : 'have'} no charge head
+            collecting into {funds.filter(f => feedersFor(f._id).length === 0).length === 1 ? 'it' : 'them'} —
+            so {funds.filter(f => feedersFor(f._id).length === 0).length === 1 ? 'it' : 'they'} will stay at ₹0
+            forever. Set one up in <strong>Charge Heads</strong>.
+          </p>
         </div>
       )}
 

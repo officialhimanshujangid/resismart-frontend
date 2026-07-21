@@ -10,7 +10,10 @@ import {
 import {
   Plus, Users, Search, ShieldAlert, Building2, Trash2, UserMinus, Info, Wrench,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
+import { DataTable, ColumnDef } from '@/components/common/DataTable';
+import PageHeader from '@/components/common/PageHeader';
 
 /**
  * The society's own staff.
@@ -37,6 +40,7 @@ interface Staff {
   joinedOn: string;
   leftOn?: string;
   accessRoleId?: string;
+  userId?: string;
   verification?: { policeVerifiedOn?: string; expiresOn?: string };
 }
 interface Assignment {
@@ -60,6 +64,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 export default function StaffPage() {
   const { showToast, confirm } = useToastConfirm();
+  const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -101,20 +106,51 @@ export default function StaffPage() {
     try {
       const res = await api.get(`/staff/${s._id}`);
       setAssignments(res.data?.data?.assignments || []);
+      // The list row does not carry userId; the full record does. Refresh from
+      // it so the login section knows whether they can already sign in.
+      if (res.data?.data?.staff) setDetailOf(res.data.data.staff);
     } catch { setAssignments([]); }
   };
 
+  /**
+   * Add or edit — one dialog, because they are the same form.
+   *
+   * `PUT /staff/:id` shipped complete with no caller anywhere, so a phone
+   * number typed wrong on the day somebody joined stayed wrong forever, and a
+   * police verification could never be renewed. The presence of `_id` decides
+   * which verb goes out; the update schema takes a subset of the create one, so
+   * the extra keys are sent only on create.
+   */
   const add = async () => {
     setSaving(true);
     try {
-      const res = await api.post('/staff', form);
-      showToast(res.data?.message || 'Added', 'success');
+      if (form._id) {
+        const { _id, employmentType, vendorId, ...editable } = form;
+        const res = await api.put(`/staff/${_id}`, editable);
+        showToast(res.data?.message || 'Saved', 'success');
+      } else {
+        const res = await api.post('/staff', form);
+        showToast(res.data?.message || 'Added', 'success');
+      }
       setAddOpen(false);
       setForm({ name: '', phone: '', designation: 'SECURITY_GUARD', employmentType: 'DIRECT' });
       await load();
+      if (detailOf) setDetailOf(null);
     } catch (e: any) {
-      showToast(e.response?.data?.message || 'Could not add them', 'error');
+      showToast(e.response?.data?.message || 'Could not save that', 'error');
     } finally { setSaving(false); }
+  };
+
+  const openEdit = (s: Staff) => {
+    setForm({
+      _id: s._id,
+      name: s.person.name, phone: s.person.phone, email: s.person.email || '',
+      designation: s.designation,
+      employmentType: s.employmentType,
+      accessRoleId: s.accessRoleId || '',
+      verification: { expiresOn: s.verification?.expiresOn ? s.verification.expiresOn.slice(0, 10) : '' },
+    });
+    setAddOpen(true);
   };
 
   const end = async (s: Staff) => {
@@ -131,6 +167,25 @@ export default function StaffPage() {
       await load();
     } catch (e: any) {
       showToast(e.response?.data?.message || 'Could not do that', 'error');
+    }
+  };
+
+  const giveLogin = async (s: Staff) => {
+    const yes = await confirm({
+      title: `Give ${s.person.name} a login?`,
+      message: 'They will be able to sign in to see their assigned work and be notified. A one-time password is shown next — write it down, it is not stored.',
+      confirmText: 'Create login',
+    });
+    if (!yes) return;
+    try {
+      const res = await api.post(`/staff/${s._id}/login`, {});
+      // The password is shown once, in the toast, because there is no SMS to
+      // send it through. Kept up long enough to write down.
+      showToast(res.data?.message || 'Login created', 'success');
+      setDetailOf(res.data?.data?.staff || detailOf);
+      await load();
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not create that login', 'error');
     }
   };
 
@@ -165,22 +220,104 @@ export default function StaffPage() {
       s.staffCode.toLowerCase().includes(t));
   }, [staff, q]);
 
+  const staffColumns: ColumnDef<Staff>[] = [
+    {
+      id: 'name', label: 'Name', alwaysVisible: true,
+      sortValue: s => s.person.name,
+      exportValue: s => s.person.name,
+      render: s => (
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${s.isActive ? 'bg-slate-100' : 'bg-slate-50'}`}>
+            <span className="text-xs font-black text-slate-500">{s.person.name.slice(0, 2).toUpperCase()}</span>
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <p className={`font-bold truncate ${s.isActive ? 'text-slate-800' : 'text-slate-400'}`}>{s.person.name}</p>
+              {!s.isActive && <Chip size="small" label="Left" className="!bg-slate-200 !text-slate-600 !font-bold !text-[10px] !h-4" />}
+            </div>
+            <p className="text-[11px] text-slate-400 font-mono">{s.staffCode}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'designation', label: 'Job',
+      sortValue: s => pretty(s.designation),
+      exportValue: s => pretty(s.designation),
+      render: s => <span className="text-sm text-slate-700">{pretty(s.designation)}</span>,
+    },
+    {
+      id: 'phone', label: 'Phone',
+      sortValue: s => s.person.phone,
+      exportValue: s => s.person.phone,
+      render: s => <span className="text-sm text-slate-600 tabular-nums">{s.person.phone}</span>,
+    },
+    {
+      id: 'type', label: 'Employed',
+      sortValue: s => TYPE_LABEL[s.employmentType] || s.employmentType,
+      exportValue: s => `${TYPE_LABEL[s.employmentType]}${s.vendorName ? ` (${s.vendorName})` : ''}`,
+      render: s => (
+        <div className="min-w-0">
+          <p className="text-sm text-slate-600">{TYPE_LABEL[s.employmentType]}</p>
+          {s.vendorName && <p className="text-[11px] text-slate-400 truncate">{s.vendorName}</p>}
+        </div>
+      ),
+    },
+    {
+      id: 'login', label: 'Login', align: 'center',
+      sortValue: s => (s.userId ? 'Yes' : 'No'),
+      exportValue: s => (s.userId ? 'Yes' : 'No'),
+      render: s => s.userId
+        ? <Chip size="small" label="Has one" className="!bg-emerald-50 !text-emerald-700 !font-bold !text-[10px]" />
+        : <span className="text-[11px] text-slate-300">—</span>,
+    },
+    {
+      id: 'verified', label: 'Police check', defaultHidden: true,
+      // The date, not a tick: a verification that lapsed two years ago reads
+      // exactly like one that never happened, and sorting on it is how a
+      // committee finds the lapsed ones.
+      sortValue: s => s.verification?.expiresOn || '',
+      exportValue: s => s.verification?.expiresOn
+        ? new Date(s.verification.expiresOn).toLocaleDateString('en-IN') : 'not done',
+      render: s => s.verification?.expiresOn
+        ? <span className={`text-[11px] font-semibold ${new Date(s.verification.expiresOn) < new Date() ? 'text-rose-600' : 'text-slate-500'}`}>
+            till {new Date(s.verification.expiresOn).toLocaleDateString('en-IN')}
+          </span>
+        : <span className="text-[11px] text-slate-300">not done</span>,
+    },
+    {
+      id: 'joined', label: 'Joined', defaultHidden: true,
+      sortValue: s => s.joinedOn || '',
+      exportValue: s => s.joinedOn ? new Date(s.joinedOn).toLocaleDateString('en-IN') : '',
+      render: s => (
+        <span className="text-[11px] text-slate-500">
+          {s.joinedOn ? new Date(s.joinedOn).toLocaleDateString('en-IN') : '—'}
+        </span>
+      ),
+    },
+  ];
+
   if (loading) return <div className="flex justify-center py-24"><CircularProgress /></div>;
 
   return (
     <div className="space-y-4 pb-24">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-black text-slate-900">Staff</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            Who works here, and which wing each looks after.
-          </p>
-        </div>
-        <Button variant="contained" startIcon={<Plus className="w-4 h-4" />}
-          onClick={() => setAddOpen(true)} className="!rounded-xl !normal-case !font-bold shrink-0">
-          Add someone
-        </Button>
-      </div>
+      <PageHeader
+        breadcrumb="Operations · Staff"
+        title="Staff"
+        icon={<Users className="w-4.5 h-4.5" />}
+        subtitle="Who works here, and which wing each looks after. No salaries are held — this is the roll, which is what lets you say the agency billed for four guards and three are on the list."
+        actions={
+          <>
+            <Button variant="outlined" startIcon={<Wrench className="w-4 h-4" />}
+              onClick={() => router.push('/dashboard/staff/coverage')}
+              className="!rounded-xl !normal-case !font-bold">Who covers what</Button>
+            <Button variant="contained" startIcon={<Plus className="w-4 h-4" />}
+              onClick={() => setAddOpen(true)} className="!rounded-xl !normal-case !font-bold">
+              Add someone
+            </Button>
+          </>
+        }
+      />
 
       {/* -------------------------------------------------- the agency check */}
       {alerts.headcount.length > 0 && (
@@ -230,54 +367,37 @@ export default function StaffPage() {
         </Paper>
       )}
 
-      <div className="flex gap-2 items-center flex-wrap">
-        <TextField size="small" placeholder="Name, phone, code…" value={q}
-          onChange={e => setQ(e.target.value)} className="flex-1 min-w-56"
-          slotProps={{ input: { className: '!rounded-xl', startAdornment: <Search className="w-4 h-4 text-slate-400 mr-2" /> } }} />
-        <ToggleButtonGroup exclusive size="small" value={showLeft ? 'all' : 'active'}
-          onChange={(_, v) => v && setShowLeft(v === 'all')}>
-          <ToggleButton value="active" className="!rounded-l-xl !normal-case !text-xs !font-bold !px-3">Current</ToggleButton>
-          <ToggleButton value="all" className="!rounded-r-xl !normal-case !text-xs !font-bold !px-3">Everyone</ToggleButton>
-        </ToggleButtonGroup>
-      </div>
-
       {/* --------------------------------------------------------- the list */}
-      {shown.length === 0 ? (
-        <Paper elevation={0} className="rounded-2xl border border-slate-200/70 p-10 text-center">
-          <Users className="w-8 h-8 text-slate-300 mx-auto" />
-          <p className="mt-3 font-bold text-slate-700">Nobody here yet</p>
-        </Paper>
-      ) : (
-        <div className="grid gap-2">
-          {shown.map(s => (
-            <Paper key={s._id} elevation={0}
-              onClick={() => openDetail(s)}
-              className={`rounded-2xl border p-3 flex items-center gap-3 cursor-pointer hover:border-slate-300 ${s.isActive ? 'border-slate-200/70' : 'border-slate-200/70 opacity-60'}`}>
-              <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-                <span className="text-xs font-black text-slate-500">{s.person.name.slice(0, 2).toUpperCase()}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-bold text-slate-800 truncate">{s.person.name}</p>
-                  {!s.isActive && <Chip size="small" label="Left" className="!bg-slate-200 !text-slate-600 !font-bold !text-[10px] !h-4" />}
-                </div>
-                <p className="text-xs text-slate-500">
-                  {s.staffCode} · {pretty(s.designation)}
-                  {s.vendorName && ` · ${s.vendorName}`}
-                </p>
-              </div>
-              <span className="text-[10px] font-bold text-slate-400 shrink-0 hidden sm:block">
-                {TYPE_LABEL[s.employmentType]}
-              </span>
-            </Paper>
-          ))}
-        </div>
-      )}
+      <DataTable
+        columns={staffColumns}
+        data={shown}
+        keyExtractor={s => s._id}
+        onRowClick={openDetail}
+        exportFileName="staff-roll"
+        columnToggle
+        emptyTitle="Nobody here yet"
+        emptyText="Add the people who work here — guards, cleaners, the plumber you call — so complaints can reach them."
+        emptyIcon={<Users className="w-6 h-6" />}
+        toolbar={
+          <>
+            <TextField size="small" placeholder="Name, phone, code…" value={q}
+              onChange={e => setQ(e.target.value)} className="min-w-[240px]"
+              slotProps={{ input: { className: '!rounded-xl', startAdornment: <Search className="w-4 h-4 text-slate-400 mr-2" /> } }} />
+            <ToggleButtonGroup exclusive size="small" value={showLeft ? 'all' : 'active'}
+              onChange={(_, v) => v && setShowLeft(v === 'all')}>
+              <ToggleButton value="active" className="!rounded-l-xl !normal-case !text-xs !font-bold !px-3">Current</ToggleButton>
+              <ToggleButton value="all" className="!rounded-r-xl !normal-case !text-xs !font-bold !px-3">Everyone</ToggleButton>
+            </ToggleButtonGroup>
+          </>
+        }
+      />
 
       {/* ------------------------------------------------------------ add */}
       <Dialog open={addOpen} onClose={() => setAddOpen(false)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
-        <DialogTitle className="!font-black !text-slate-900">Add someone</DialogTitle>
+        <DialogTitle className="!font-black !text-slate-900">
+          {form._id ? `Edit ${form.name}` : 'Add someone'}
+        </DialogTitle>
         <DialogContent dividers className="space-y-3">
           <TextField autoFocus fullWidth size="small" label="Name" value={form.name}
             onChange={e => setForm({ ...form, name: e.target.value })} />
@@ -290,14 +410,19 @@ export default function StaffPage() {
               {look?.designations.map(d => <MenuItem key={d} value={d}>{pretty(d)}</MenuItem>)}
             </Select>
           </FormControl>
-          <FormControl fullWidth size="small">
+          {/* How somebody is engaged, and through which agency, is not editable
+              once they are on the roll: it is what the agency headcount check
+              counts, and quietly moving a person between agencies would rewrite
+              last month's bill comparison. End their employment and add them
+              afresh instead. */}
+          <FormControl fullWidth size="small" disabled={!!form._id}>
             <InputLabel>How they are engaged</InputLabel>
             <Select label="How they are engaged" value={form.employmentType}
               onChange={e => setForm({ ...form, employmentType: e.target.value, vendorId: '' })}>
               {Object.entries(TYPE_LABEL).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
             </Select>
           </FormControl>
-          {form.employmentType === 'AGENCY' && (
+          {form.employmentType === 'AGENCY' && !form._id && (
             <FormControl fullWidth size="small">
               <InputLabel>Which agency</InputLabel>
               <Select label="Which agency" value={form.vendorId || ''}
@@ -324,7 +449,7 @@ export default function StaffPage() {
           <Button onClick={() => setAddOpen(false)} className="!normal-case !font-bold">Cancel</Button>
           <Button variant="contained" onClick={add} disabled={saving || !form.name || !form.phone}
             className="!rounded-xl !normal-case !font-bold">
-            {saving ? 'Adding…' : 'Add'}
+            {saving ? 'Saving…' : form._id ? 'Save' : 'Add'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -332,13 +457,42 @@ export default function StaffPage() {
       {/* ------------------------------------------------------- assignments */}
       <Dialog open={!!detailOf} onClose={() => setDetailOf(null)} fullWidth maxWidth="sm"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
-        <DialogTitle className="!font-black !text-slate-900">
-          {detailOf?.person.name}
-          <span className="block text-xs font-normal text-slate-500 mt-0.5">
-            {detailOf?.staffCode} · {detailOf && pretty(detailOf.designation)}
+        <DialogTitle className="!font-black !text-slate-900 flex items-start justify-between gap-3">
+          <span>
+            {detailOf?.person.name}
+            <span className="block text-xs font-normal text-slate-500 mt-0.5">
+              {detailOf?.staffCode} · {detailOf && pretty(detailOf.designation)} · {detailOf?.person.phone}
+            </span>
           </span>
+          {detailOf?.isActive && (
+            <Button size="small" variant="outlined" onClick={() => openEdit(detailOf)}
+              className="!rounded-xl !normal-case !font-bold !text-xs shrink-0">Edit details</Button>
+          )}
         </DialogTitle>
         <DialogContent dividers className="space-y-4">
+          {/* Login — the thing that makes their access role and notifications
+              actually work. Without it, a role is set and never takes effect. */}
+          {detailOf?.isActive && (
+            <div className="rounded-xl border border-slate-200 p-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-700">
+                  {detailOf?.userId ? 'Can sign in' : 'No login yet'}
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  {detailOf?.userId
+                    ? 'Their access role and notifications are live.'
+                    : 'Without a login their access role does nothing and they get no alerts.'}
+                </p>
+              </div>
+              {!detailOf?.userId && (
+                <Button size="small" variant="outlined" onClick={() => giveLogin(detailOf!)}
+                  className="!rounded-xl !normal-case !font-bold !text-xs shrink-0">
+                  Give login
+                </Button>
+              )}
+            </div>
+          )}
+
           <div>
             <div className="flex items-center gap-2 mb-2">
               <Wrench className="w-3.5 h-3.5 text-slate-500" />

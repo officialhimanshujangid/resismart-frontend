@@ -8,6 +8,8 @@ import {
 } from '@mui/material';
 import { Plus, QrCode, Wrench, AlertTriangle, Printer, History } from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
+import { DataTable, ColumnDef } from '@/components/common/DataTable';
+import PageHeader from '@/components/common/PageHeader';
 import QRCode from 'qrcode';
 
 /**
@@ -21,7 +23,8 @@ import QRCode from 'qrcode';
 
 interface Asset {
   _id: string; assetCode: string; name: string; category: string;
-  blockName?: string; location?: string; vendorName?: string;
+  blockId?: string; blockName?: string; location?: string;
+  vendorId?: string; vendorName?: string;
   amcExpiresOn?: string; qrToken: string; isActive: boolean;
 }
 
@@ -64,12 +67,16 @@ export default function AssetsPage() {
   const add = async () => {
     setSaving(true);
     try {
-      await api.post('/complaints/assets', form);
-      showToast('Added', 'success');
+      // One dialog for both. A form carrying an _id is an edit — which reaches
+      // the PUT route that shipped months ago with no caller, so equipment was
+      // create-only and a wrongly-filed lift could never be corrected.
+      if (form._id) await api.put(`/complaints/assets/${form._id}`, form);
+      else await api.post('/complaints/assets', form);
+      showToast(form._id ? 'Saved' : 'Added', 'success');
       setAddOpen(false); setForm({ name: '', category: 'LIFT' });
       await load();
     } catch (e: any) {
-      showToast(e.response?.data?.message || 'Could not add that', 'error');
+      showToast(e.response?.data?.message || 'Could not save that', 'error');
     } finally { setSaving(false); }
   };
 
@@ -85,22 +92,107 @@ export default function AssetsPage() {
     } catch { setHistory([]); }
   };
 
+  const assetColumns: ColumnDef<Asset>[] = [
+    {
+      id: 'name', label: 'Equipment', alwaysVisible: true,
+      sortValue: a => a.name,
+      exportValue: a => a.name,
+      render: a => (
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+            <Wrench className="w-4 h-4 text-slate-500" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-bold text-slate-800 truncate">{a.name}</p>
+            <p className="text-[11px] text-slate-400 font-mono">{a.assetCode}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'category', label: 'Kind',
+      sortValue: a => CATEGORY_LABEL[a.category] || a.category,
+      exportValue: a => CATEGORY_LABEL[a.category] || a.category,
+      render: a => <span className="text-sm text-slate-600">{CATEGORY_LABEL[a.category] || a.category}</span>,
+    },
+    {
+      id: 'where', label: 'Where',
+      sortValue: a => `${a.blockName || ''} ${a.location || ''}`.trim(),
+      exportValue: a => [a.blockName, a.location].filter(Boolean).join(' · '),
+      render: a => (
+        <span className="text-sm text-slate-500">
+          {[a.blockName, a.location].filter(Boolean).join(' · ') || 'Common area'}
+        </span>
+      ),
+    },
+    {
+      id: 'vendor', label: 'Maintained by',
+      sortValue: a => a.vendorName || '',
+      exportValue: a => a.vendorName || '',
+      render: a => a.vendorName
+        ? <span className="text-sm text-slate-600">{a.vendorName}</span>
+        : <span className="text-[11px] text-slate-300">nobody</span>,
+    },
+    {
+      id: 'amc', label: 'AMC until',
+      // Sortable, because "which contracts lapse next" is the question this
+      // screen exists to answer and a card list could never be read that way.
+      sortValue: a => a.amcExpiresOn || '',
+      exportValue: a => a.amcExpiresOn ? new Date(a.amcExpiresOn).toLocaleDateString('en-IN') : '',
+      render: a => {
+        if (!a.amcExpiresOn) return <span className="text-[11px] text-slate-300">none</span>;
+        const lapsed = new Date(a.amcExpiresOn) < new Date();
+        return (
+          <span className={`text-[11px] font-semibold ${lapsed ? 'text-rose-600' : 'text-slate-500'}`}>
+            {lapsed && <AlertTriangle className="w-3 h-3 inline mr-0.5 -mt-0.5" />}
+            {new Date(a.amcExpiresOn).toLocaleDateString('en-IN')}
+          </span>
+        );
+      },
+    },
+    {
+      id: 'act', label: '', align: 'right', alwaysVisible: true,
+      render: a => (
+        <div className="flex items-center justify-end gap-1">
+          <Button size="small"
+            onClick={() => {
+              setForm({
+                _id: a._id, name: a.name, category: a.category,
+                blockId: a.blockId || '', location: a.location || '',
+                vendorId: a.vendorId || '',
+                amcExpiresOn: a.amcExpiresOn ? a.amcExpiresOn.slice(0, 10) : '',
+              });
+              setAddOpen(true);
+            }}
+            className="!rounded-xl !normal-case !font-bold !text-xs !text-slate-500">
+            Edit
+          </Button>
+          <Button size="small" variant="outlined" startIcon={<QrCode className="w-3.5 h-3.5" />}
+            onClick={() => showQr(a)} className="!rounded-xl !normal-case !font-bold !text-xs">
+            Sticker
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
   if (loading) return <div className="flex justify-center py-24"><CircularProgress /></div>;
 
   return (
     <div className="space-y-4 pb-24">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-black text-slate-900">Equipment</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            Lifts, pumps and tanks — each with a sticker that reports its own faults.
-          </p>
-        </div>
-        <Button variant="contained" startIcon={<Plus className="w-4 h-4" />}
-          onClick={() => setAddOpen(true)} className="!rounded-xl !normal-case !font-bold shrink-0">
-          Add equipment
-        </Button>
-      </div>
+      <PageHeader
+        breadcrumb="Operations"
+        title="Equipment"
+        icon={<Wrench className="w-4.5 h-4.5" />}
+        subtitle="Lifts, pumps and tanks — each with a sticker that reports its own faults. Not the same as Finance → Fixed Assets, which is the same lift as an accounting entry to be depreciated."
+        actions={
+          <Button variant="contained" startIcon={<Plus className="w-4 h-4" />}
+            onClick={() => { setForm({ name: '', category: 'LIFT' }); setAddOpen(true); }}
+            className="!rounded-xl !normal-case !font-bold">
+            Add equipment
+          </Button>
+        }
+      />
 
       {expiring.length > 0 && (
         <Paper elevation={0} className="rounded-2xl border border-amber-300 bg-amber-50/60 p-4">
@@ -123,49 +215,21 @@ export default function AssetsPage() {
         </Paper>
       )}
 
-      {assets.length === 0 ? (
-        <Paper elevation={0} className="rounded-2xl border border-slate-200/70 p-10 text-center">
-          <Wrench className="w-8 h-8 text-slate-300 mx-auto" />
-          <p className="mt-3 font-bold text-slate-700">Nothing listed yet</p>
-          <p className="text-sm text-slate-500 mt-1">
-            Add your lifts and pumps, print their stickers, and complaints start arriving
-            with the location already filled in.
-          </p>
-        </Paper>
-      ) : (
-        <div className="grid gap-2">
-          {assets.map(a => (
-            <Paper key={a._id} elevation={0} className="rounded-2xl border border-slate-200/70 p-3 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-                <Wrench className="w-4 h-4 text-slate-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-slate-800 truncate">{a.name}</p>
-                <p className="text-xs text-slate-500">
-                  {a.assetCode} · {CATEGORY_LABEL[a.category] || a.category}
-                  {a.blockName && ` · ${a.blockName}`}
-                  {a.location && ` · ${a.location}`}
-                </p>
-                {a.vendorName && (
-                  <p className="text-[11px] text-slate-400">
-                    {a.vendorName}
-                    {a.amcExpiresOn && ` · AMC to ${new Date(a.amcExpiresOn).toLocaleDateString('en-IN')}`}
-                  </p>
-                )}
-              </div>
-              <Button size="small" variant="outlined" startIcon={<QrCode className="w-3.5 h-3.5" />}
-                onClick={() => showQr(a)} className="!rounded-xl !normal-case !font-bold !text-xs shrink-0">
-                Sticker
-              </Button>
-            </Paper>
-          ))}
-        </div>
-      )}
+      <DataTable
+        columns={assetColumns}
+        data={assets}
+        keyExtractor={a => a._id}
+        exportFileName="equipment"
+        columnToggle
+        emptyTitle="Nothing listed yet"
+        emptyText="Add your lifts and pumps, print their stickers, and complaints start arriving with the location already filled in."
+        emptyIcon={<Wrench className="w-6 h-6" />}
+      />
 
       {/* -------------------------------------------------------------- add */}
       <Dialog open={addOpen} onClose={() => setAddOpen(false)} fullWidth maxWidth="xs"
         slotProps={{ paper: { className: '!rounded-2xl' } }}>
-        <DialogTitle className="!font-black !text-slate-900">Add equipment</DialogTitle>
+        <DialogTitle className="!font-black !text-slate-900">{form._id ? 'Edit equipment' : 'Add equipment'}</DialogTitle>
         <DialogContent dividers className="space-y-3">
           <TextField autoFocus fullWidth size="small" label="What is it called?" value={form.name}
             onChange={e => setForm({ ...form, name: e.target.value })}

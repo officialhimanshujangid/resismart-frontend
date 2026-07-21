@@ -35,6 +35,23 @@ interface Request {
 
 const secondsLeft = (iso: string) => Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 1000));
 
+/**
+ * Why THIS person is being asked.
+ *
+ * `askedVia` has been stored on every request since the module was written and
+ * no screen ever showed it — which is how a resident of A-102 came to see a
+ * request for A-103 with no explanation at all and reasonably concluded their
+ * neighbour's visitors were leaking to them. The rule was sound; it was simply
+ * never stated. A question about somebody else's front door must always say
+ * why it is being put to you.
+ */
+const WHY_ASKED: Record<string, string> = {
+  OWNER_OCCUPIED: 'You live here',
+  RENTED_TENANT_ONLY: 'You are the tenant here',
+  VACANT_COMMITTEE: 'This flat is empty and you are on the committee',
+  NO_FLAT: 'No flat was named, so the committee was asked',
+};
+
 export default function GateApprovalsPage() {
   const { showToast } = useToastConfirm();
   const { activeProfile } = useAuth();
@@ -119,6 +136,13 @@ export default function GateApprovalsPage() {
               {r.flatLabel && ` · for ${r.flatLabel}`}
               {r.visitorPhone && ` · ${r.visitorPhone}`}
             </p>
+            {/* Never shown before, and its absence is exactly what made a
+                request about a neighbour's flat look like a leak. */}
+            {!forGuard && WHY_ASKED[r.askedVia] && (
+              <p className="text-[11px] text-slate-400 mt-1">
+                Asked of you because: {WHY_ASKED[r.askedVia]}
+              </p>
+            )}
           </div>
           {r.outcome === 'PENDING' ? (
             <Chip size="small" icon={<Clock className="w-3 h-3" />} label={left > 0 ? `${left}s` : 'time up'}

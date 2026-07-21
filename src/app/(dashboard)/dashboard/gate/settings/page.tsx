@@ -6,7 +6,10 @@ import {
   Paper, Button, CircularProgress, Chip, Switch, FormControlLabel, Select, MenuItem,
   FormControl, TextField, ToggleButton, ToggleButtonGroup,
 } from '@mui/material';
-import { Check, Info, Lock, ShieldCheck, DoorOpen, Clock, Car, Eye, Languages, LayoutGrid } from 'lucide-react';
+import {
+  Info, Lock, ShieldCheck, DoorOpen, Clock, Car, Eye, Languages, LayoutGrid,
+  Users, AlertTriangle,
+} from 'lucide-react';
 import { useToastConfirm } from '@/context/ToastConfirmContext';
 import { GATE_LANGUAGES } from '@/lib/gate-i18n';
 
@@ -184,6 +187,84 @@ export default function GateSettingsPage() {
         </div>
       </Card>
 
+      {/* ------------------------------------------------- entry only vs both
+        *
+        * Placed directly under the preset and asked as a question rather than
+        * offered as a switch called "trackExit", because it is the single
+        * decision that shapes every other screen in the module: an
+        * arrivals-only society has no overstay, no reconciliation, no exit
+        * gate and no "who is inside" worth the name. A small society
+        * genuinely does want only arrivals, and burying that three cards down
+        * under a technical label meant nobody ever found it.
+        */}
+      <Card icon={<DoorOpen className="w-4 h-4 text-slate-600" />} title="Do you record people leaving?">
+        <div className="grid sm:grid-cols-2 gap-2 py-3">
+          {[
+            {
+              on: false, title: 'Arrivals only',
+              blurb: 'The gate writes down who came in. Nobody has to remember to mark them out, and the register is never wrong about who is still inside — because it never claims to know.',
+            },
+            {
+              on: true, title: 'Arrivals and departures',
+              blurb: 'Both are recorded, so the console can answer "who is inside right now", flag a visitor who has stayed far longer than expected, and close off the day\'s stragglers at night.',
+            },
+          ].map(o => (
+            <button key={String(o.on)} disabled={saving}
+              onClick={() => save({ gate: { exit: { trackExit: o.on } } },
+                o.on ? 'Departures will be recorded' : 'Arrivals only')}
+              className={`text-left rounded-xl border p-3 transition ${
+                g.exit.trackExit === o.on ? 'border-indigo-400 bg-indigo-50/60' : 'border-slate-200 hover:border-slate-300'
+              }`}>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-800 text-sm">{o.title}</span>
+                {g.exit.trackExit === o.on && (
+                  <Chip size="small" label="In use" className="!bg-indigo-600 !text-white !font-bold !text-[10px] !h-5" />
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">{o.blurb}</p>
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      {/* ------------------------------------------- residents' own movement
+        *
+        * Its own card, worded as a question, and OFF unless a society says
+        * otherwise. This is not decoration: with it off the software has no
+        * way to write a resident movement at all — the entry endpoint refuses
+        * the category — so a committee that leaves it alone has a guarantee
+        * rather than a promise.
+        */}
+      <Card icon={<Users className="w-4 h-4 text-slate-600" />} title="Do you record residents coming and going?">
+        <div className="py-3 space-y-2">
+          <div className="rounded-xl bg-amber-50 border border-amber-200/70 p-3 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-900 leading-relaxed">
+              Think carefully before switching this on. Recording when members leave home and when
+              they return is surveillance of the people who own this building, and it is the loudest
+              complaint made against apps like this one. Most societies should leave it off — and while
+              it is off, the software will not accept a resident movement even if somebody tries.
+            </p>
+          </div>
+          <Row title="Record residents' own entry and exit"
+            hint="Off by default. Nothing else on this page changes what the gate does for residents.">
+            <Switch checked={g.residents.logMovement} disabled={saving}
+              onChange={e => save(
+                { gate: { residents: { logMovement: e.target.checked } } },
+                e.target.checked ? 'Resident movement will be recorded' : 'Residents are no longer recorded',
+              )} />
+          </Row>
+          {g.residents.logMovement && (
+            <Row title="Only the vehicle, never the person"
+              hint="Records that a registered car came in, tied to its flat — no name is stored at all. The usual reason a society wants this is parking, and this is the least intrusive way to get it."
+            >
+              <Switch checked={g.residents.logVehicleOnly} disabled={saving}
+                onChange={e => save({ gate: { residents: { logVehicleOnly: e.target.checked } } })} />
+            </Row>
+          )}
+        </div>
+      </Card>
+
       {/* ------------------------------------------------------------ capture */}
       <Card icon={<ShieldCheck className="w-4 h-4 text-slate-600" />} title="What the guard asks for">
         <Row title="Photo" hint="Taken at the gate, kept only as long as the record below.">
@@ -225,10 +306,12 @@ export default function GateSettingsPage() {
 
       {/* --------------------------------------------------------------- exit */}
       <Card icon={<Clock className="w-4 h-4 text-slate-600" />} title="Departures">
-        <Row title="Record when people leave" hint="Without this the gate is an arrivals register only.">
-          <Switch checked={g.exit.trackExit} onChange={e => save({ gate: { exit: { trackExit: e.target.checked } } })} />
-        </Row>
-        {g.exit.trackExit && (
+        {!g.exit.trackExit ? (
+          <p className="text-[11px] text-slate-500 py-3 leading-relaxed">
+            Nothing to set here while the gate records arrivals only. Choose
+            &ldquo;Arrivals and departures&rdquo; above to use overstay alerts and the end-of-day close-off.
+          </p>
+        ) : (
           <>
             <Row title="Tell the guard after" hint="How long past the expected stay before the console flags them.">
               <TextField size="small" type="number" value={g.exit.overstayAlertAfterMinutes}
@@ -280,11 +363,6 @@ export default function GateSettingsPage() {
               {[30, 60, 90, 120, 180].map(d => <MenuItem key={d} value={d}>{d} days</MenuItem>)}
             </Select>
           </FormControl>
-        </Row>
-        <Row title="Log where residents come and go"
-          hint="Off by default, and worth leaving off. Tracking members' own movements is the loudest complaint against apps like this.">
-          <Switch checked={g.residents.logMovement}
-            onChange={e => save({ gate: { residents: { logMovement: e.target.checked } } })} />
         </Row>
         <Row title="Residents see only their own flat's visitors"
           hint="Not a setting. A resident reading a neighbour's visitor log is the failure this rule exists to prevent.">
